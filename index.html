@@ -35,7 +35,7 @@
   <h3>Как играть</h3>
   <p>Внизу — твой <b>биток</b>. Он тоже какого-то цвета. <b>Бить можно только по косточкам своего цвета.</b> Они светятся, остальные приглушены.</p>
   <p><b>Потяни биток назад и отпусти</b> — как рогатку. Пунктир покажет, куда долетит. </p>
-  <p><b>Закрутка:</b> прицелился и замер — закрутки нет, цвет выпадет случайный. Хочешь закрутить — <b>уведи палец вбок прямо перед тем, как отпустить</b>. Подпись у биток всегда показывает, что получится.</p>
+  <p><b>Закрутка:</b> веди палец <b>дугой</b> — биток закрутится и ляжет цветом, который показывает подпись. Ведёшь прямо — закрутки нет, цвет случайный.</p>
   <p>Сбил свою — забрал. Биток остался лежать и <b>поменял цвет</b> — теперь целься в новый. <b>Задел чужую — промах</b>: всё, что в руке, рассыпалось. А если рука была пуста — биток замирает на секунду.</p>
   <p>Каждая сбитая косточка — очко. Бьёшь подряд — растёт <b>серия</b> и множитель к очкам: второе попадание даёт ×2, третье ×3 и так далее. <b>Серию рвёт промах</b> (и стоит жизни) <b>и переброс</b> — бросок, не задевший никого.</p>
   <p><b>Десять попаданий подряд — свалка.</b> На пять секунд правило цвета снимается, и ты просто <b>тыкаешь пальцем в любые косточки</b>, сколько успеешь. Серию рвёт и промах, и переброс — так что свалку надо заслужить.</p>
@@ -91,7 +91,7 @@ const D=()=>DIFFS[diff];
 // ---------- состояние ----------
 let bones=[], saka=null, foul=0, score=0, combo=1, bestCombo=1, best=+localStorage.getItem('upai_best')||0;
 let running=false, over=false, lastT=0, msg='', msgT=0, shake=0;
-let msgQ=[], bigMsg='', bigT=0, landPop=0, pendingFace=-1, spinShow=0, spinUI=0, spinOn=false, talamai=0, talTaken=0;
+let msgQ=[], bigMsg='', bigT=0, landPop=0, pendingFace=-1, spinShow=0, talamai=0, talTaken=0;
 let aimDX=0, aimDY=0, aimInit=false;
 let drag=null;     // {x0,y0,pts:[]}
 let fx=[];         // частицы/вспышки
@@ -264,26 +264,18 @@ function pt(e){return{x:e.clientX,y:e.clientY,t:performance.now()};}
 const MAXPULL=()=>Math.min(W,H)*0.30;
 const VMAX=1200;
 // закрутка = 2·стрела/хорда по ВСЕМУ жесту (первая точка хранится отдельно), нормировано в ±1 при ~0.15
-// Закрутка = поперечное движение пальца за ПОСЛЕДНИЕ 110 мс перед отпусканием.
-// Окно по ВРЕМЕНИ, а не по числу точек — одинаково на 60 и 120 Гц.
-// Прицеливание больше не влияет: повёл и замер — закрутки нет, гарантированно.
-const SPIN_WIN=110, SPIN_FULL=26, SPIN_DEAD=0.15;
-function calcSpin(now){
-  if(!drag||drag.pts.length<2)return 0;
-  const pts=drag.pts, last=pts[pts.length-1];
-  now = now===undefined ? last.t : now;
-  if(now-last.t>SPIN_WIN) return 0;               // палец стоит дольше окна — закрутки нет
-  let i=pts.length-1;
-  while(i>0 && now-pts[i-1].t<=SPIN_WIN) i--;
-  const a=pts[i], z=last;
-  const mx=z.x-a.x, my=z.y-a.y;
-  if(Math.hypot(mx,my)<3) return 0;               // палец стоит — закрутки нет
-  const ax=drag.x0-z.x, ay=drag.y0-z.y, al=Math.hypot(ax,ay);
-  if(al<12) return 0;
-  const perp=(mx*(ay/al) - my*(ax/al));           // поперёк оси оттяжки, со знаком
-  const v=Math.max(-1,Math.min(1,perp/SPIN_FULL));
-  if(Math.abs(v)<SPIN_DEAD) return 0;
-  return (Math.abs(v)-SPIN_DEAD)/(1-SPIN_DEAD)*(v>0?1:-1);
+// Закрутка = кривизна ВСЕГО жеста: ведёшь дугой — крутишь. Как было.
+// Среднее отклонение точек от хорды + мёртвая зона против дрожания пальца.
+function calcSpin(){
+  if(!drag||drag.pts.length<3)return 0;
+  const a=drag.first, z=drag.pts[drag.pts.length-1];
+  const chord=Math.hypot(z.x-a.x,z.y-a.y); if(chord<12)return 0;
+  let sum=0;
+  for(const m of drag.pts){ sum+=((m.x-a.x)*(z.y-a.y)-(m.y-a.y)*(z.x-a.x))/chord; }
+  const v=Math.max(-1,Math.min(1,(3*(sum/drag.pts.length)/chord)/0.30));
+  const DEAD=0.18;
+  if(Math.abs(v)<DEAD) return 0;
+  return (Math.abs(v)-DEAD)/(1-DEAD)*(v>0?1:-1);
 }
 cv.addEventListener('pointerdown',e=>{
   if(!e.isPrimary)return;
@@ -298,7 +290,7 @@ cv.addEventListener('pointerdown',e=>{
   if(saka.moving||sakaFreeze>0)return;
   if(Math.hypot(p.x-saka.x,p.y-saka.y)<saka.r*2.6){ drag={x0:p.x,y0:p.y,first:p,pts:[p],id:e.pointerId}; try{cv.setPointerCapture(e.pointerId);}catch(_){} }
 });
-cv.addEventListener('pointermove',e=>{ if(drag&&e.pointerId===drag.id){ drag.pts.push(pt(e)); if(drag.pts.length>240)drag.pts.splice(1,1); } });
+cv.addEventListener('pointermove',e=>{ if(drag&&e.pointerId===drag.id){ drag.pts.push(pt(e)); if(drag.pts.length>240)drag.pts.splice(1,1); spinShow=calcSpin(); } });
 cv.addEventListener('pointerup',e=>{
   if(!drag||e.pointerId!==drag.id)return;
   const p=pt(e);
@@ -306,7 +298,7 @@ cv.addEventListener('pointerup',e=>{
   if(d>18){
     const pow=Math.min(1,d/MAXPULL());
     const sp=pow*VMAX;                // линейная: ровный пробег 150→650px, квадрат давал разброс 40→1000
-    const spin=calcSpin(performance.now());
+    const spin=calcSpin();
     saka.vx=dx/d*sp; saka.vy=dy/d*sp; saka.moving=true; saka.hitWall=false;
     saka.spin=spin; saka.w=spin*18;
     shotCtx={sakaFace:saka.face,touched:new Map(),resolved:false,firstBad:null};
@@ -467,15 +459,15 @@ function render(){
         ctx.lineWidth=2.5;ctx.beginPath();ctx.arc(e.x,e.y,saka.r,0,7);ctx.stroke();
       }
       // индикатор закрутки — дуга у битка; при нулевой закрутке подписываем прямо
-      if(!spinOn){
+      if(Math.abs(spinShow)<0.05){
         ctx.fillStyle='rgba(243,236,220,.45)';ctx.font='11px sans-serif';ctx.textAlign='center';
         ctx.fillText('без закрутки — цвет случайный',saka.x,saka.y-saka.r*2.4);ctx.textAlign='left';
       } else {
-        const sgn=spinUI>0?1:-1, mag=Math.min(1,Math.abs(spinUI));
-        ctx.strokeStyle= spinUI>0 ? '#F3DC8C' : '#7A6FC0'; ctx.lineWidth=3;
+        const sgn=spinShow>0?1:-1, mag=Math.min(1,Math.abs(spinShow));
+        ctx.strokeStyle= spinShow>0 ? '#F3DC8C' : '#7A6FC0'; ctx.lineWidth=3;
         ctx.beginPath(); ctx.arc(saka.x,saka.y,saka.r*1.7, sgn>0?-2.2:0.9, sgn>0?-2.2+mag*2.4:0.9+mag*2.4); ctx.stroke();
         ctx.fillStyle=ctx.strokeStyle; ctx.font='11px sans-serif'; ctx.textAlign='center';
-        ctx.fillText(spinUI>0?'→ жёлтая/бирюзовая':'→ красная/фиолетовая', saka.x, saka.y-saka.r*2.4); ctx.textAlign='left';
+        ctx.fillText(spinShow>0?'→ жёлтая/бирюзовая':'→ красная/фиолетовая', saka.x, saka.y-saka.r*2.4); ctx.textAlign='left';
       }
     }
   }
@@ -515,13 +507,7 @@ function loop(t){
   if(sakaFreeze>0)sakaFreeze-=dt;
   if(landPop>0)landPop-=dt;
   for(const b of bones){ if(b.rolled>0)b.rolled-=dt; if(b.bad>0)b.bad-=dt*1.5; }
-  // закрутка пересчитывается каждый кадр по текущему времени — история жеста не трогается
-  spinShow = drag ? calcSpin(performance.now()) : 0;
-  // сглаживание для глаза + гистерезис, чтобы подпись не дребезжала на пороге
-  spinUI += (spinShow-spinUI)*Math.min(1,dt*8);
-  if(!spinOn && Math.abs(spinUI)>0.12) spinOn=true;
-  if(spinOn && Math.abs(spinUI)<0.04) spinOn=false;
-  if(!drag){ spinUI=0; spinOn=false; }
+  if(!drag) spinShow=0;
   if(bigT>0)bigT-=dt;
   if(msgT>0){ msgT-=dt; if(msgT<=0&&msgQ.length){ msg=msgQ.shift(); msgT=1.8; } }
   if(shake>0){shake-=dt*30;ctx.setTransform(DPR,0,0,DPR,rnd(-shake,shake),rnd(-shake,shake));}else ctx.setTransform(DPR,0,0,DPR,0,0);
