@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>УПАЙ</title>
+<style>
+  :root{--sat:env(safe-area-inset-top,0px);--sab:env(safe-area-inset-bottom,0px)}
+  html,body{margin:0;height:100%;background:#1a1410;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  canvas{display:block;width:100vw;height:100vh}
+  #ov{position:fixed;inset:0;background:rgba(14,10,8,.96);color:#E8DCC4;display:none;overflow:auto;padding:calc(26px + var(--sat)) 20px calc(26px + var(--sab));z-index:9}
+  #ov button{position:sticky;bottom:0}
+  #ov.on{display:block}
+  #ov .box{max-width:560px;margin:0 auto}
+  #ov h2{color:#E3B85A;font-size:20px;margin:0 0 12px;letter-spacing:.06em}
+  #ov h3{color:#C8B48E;font-size:14px;margin:18px 0 6px}
+  #ov p{font-size:14.5px;line-height:1.5;margin:6px 0;color:#BFB29A}
+  #ov b{color:#F0E6D2}
+  #ov .warn{border-left:2px solid #B4553C;padding-left:12px;color:#C49A88}
+  #ov button{margin-top:20px;padding:12px 22px;border-radius:6px;border:1px solid #4A3A2A;background:#2A2018;color:#E8DCC4;font-size:15px;cursor:pointer}
+  .sw{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-1px;margin-right:4px}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="ov"><div class="box">
+  <h2>УПАЙ</h2>
+  <p>Кыргызско-казахская игра в альчики. На войлоке рассыпаны бараньи косточки, каждая лежит на одной из четырёх граней:</p>
+  <p><span class="sw" style="background:#F3DC8C"></span><b>алчы</b> · <span class="sw" style="background:#5FB8B0"></span><b>таа</b> · <span class="sw" style="background:#B24A30"></span><b>чик</b> · <span class="sw" style="background:#7A6FC0"></span><b>бөк</b></p>
+
+  <h3>Как играть</h3>
+  <p>Внизу — твоя <b>сака</b>, биток. Она тоже лежит на какой-то грани. <b>Бить можно только по косточке той же грани, что и сака.</b> Подходящие цели подсвечены.</p>
+  <p><b>Потяни от саки и отпусти</b> — она полетит. Направление — куда бьёшь, длина — сила, а если провести дугой — сака закрутится, и это меняет, какой гранью она ляжет.</p>
+  <p>Сбил цель, не задев других — забрал её. Сака осталась лежать, и её новая грань решает, кого бьёшь дальше. <b>Задел постороннюю — фол</b>: рука сгорает, а если рука пуста — сака замирает на секунду.</p>
+  <p>Три кости — <b>басым</b>, они в сейфе. Пока трёх нет — держишь в руке и рискуешь.</p>
+  <p>Редко сака встаёт <b>на ребро</b> — это айкүр. Тогда <b>таламай</b>: четыре секунды свалки, хватай кости пальцем, сколько успеешь.</p>
+
+  <h3>Цель</h3>
+  <p>Собрать как можно больше за 75 секунд. Упай — значит очко.</p>
+
+  <div class="warn">
+    <h3>Честно</h3>
+    <p>Правило «одноимённой парой», фол за касание чужой кости и «рука до басыма» — из кыргызских и казахских источников (Рысмендеева 2016, официальный рулбук 2011). А вот реальное время, таймер и потеря руки при фоле — моя адаптация: оригинал пошаговый и часовой.</p>
+  </div>
+  <button id="go">Играть</button>
+</div></div>
+
+<script>
+'use strict';
+const cv=document.getElementById('c'), ctx=cv.getContext('2d');
+let W=0,H=0,DPR=1,SAT=0,SAB=0,TOP=40,BOT=8;
+function resize(){DPR=Math.min(2,devicePixelRatio||1);W=innerWidth;H=innerHeight;cv.width=W*DPR;cv.height=H*DPR;ctx.setTransform(DPR,0,0,DPR,0,0);
+  const cs=getComputedStyle(document.documentElement);SAT=parseFloat(cs.getPropertyValue('--sat'))||0;SAB=parseFloat(cs.getPropertyValue('--sab'))||0;TOP=40+SAT;BOT=8+SAB;}
+addEventListener('resize',resize);resize();
+
+// ---------- грани ----------
+const FACES=['алчы','таа','чик','бөк'];
+const FCOL=['#F3DC8C','#5FB8B0','#B24A30','#7A6FC0'];
+const FDARK=['#9A7A2A','#2C6A64','#6A2A18','#433A7A'];
+// базовые вероятности поз без закрутки: чик/бөк (плоские) устойчивее, алчы/таа реже
+const BASEP=[0.20,0.22,0.30,0.28];
+
+// ---------- состояние ----------
+let bones=[], saka=null, held=[], banked=0, foul=0, score=0, best=+localStorage.getItem('upai_best')||0;
+let timeLeft=75, running=false, over=false, lastT=0, msg='', msgT=0, shake=0;
+let msgQ=[], bigMsg='', bigT=0, landPop=0, pendingFace=-1, spinShow=0, talamai=0, talTaken=0;
+let drag=null;     // {x0,y0,pts:[]}
+let fx=[];         // частицы/вспышки
+
+function rnd(a,b){return a+Math.random()*(b-a);}
+function pickFace(spin){
+  // закрутка (−1..1) сдвигает распределение: положительная → к алчы/таа, отрицательная → к чик/бөк
+  const p=BASEP.slice();
+  const k=Math.min(1,Math.abs(spin))*0.45;
+  if(spin>0){p[0]+=k*0.5;p[1]+=k*0.5;p[2]-=k*0.5;p[3]-=k*0.5;}
+  else if(spin<0){p[0]-=k*0.5;p[1]-=k*0.5;p[2]+=k*0.5;p[3]+=k*0.5;}
+  for(let i=0;i<4;i++)p[i]=Math.max(0.03,p[i]);
+  const s=p.reduce((a,b)=>a+b,0);let r=Math.random()*s;
+  for(let i=0;i<4;i++){r-=p[i];if(r<=0)return i;}
+  return 3;
+}
+// айкүр — редкая стоячая поза саки, запускает таламай
+function sakaFace(spin){ return Math.random()<0.04 ? 4 : pickFace(spin); }
+
+function spawn(){
+  bones=[];
+  const R=Math.min(W,H)*0.05;
+  const n=14;
+  let tries=0;
+  while(bones.length<n&&tries<800){
+    tries++;
+    const b={x:rnd(W*0.12,W*0.88),y:rnd(TOP+H*0.08,H*0.58),r:R*0.78,face:pickFace(0),vx:0,vy:0,w:rnd(-0.3,0.3),a:rnd(0,6.28),alive:true,spin:0};
+    if(bones.some(o=>Math.hypot(o.x-b.x,o.y-b.y)<R*2.1))continue;
+    bones.push(b);
+  }
+  saka={x:W/2,y:H*0.72,r:R*0.95,face:pickFace(0),vx:0,vy:0,w:0,a:0,alive:true,spin:0,moving:false,landed:true};
+}
+
+function start(){
+  held=[];banked=0;foul=0;score=0;timeLeft=75;running=true;over=false;msg='';fx=[];msgQ=[];bigMsg='';talamai=0;pendingFace=-1;
+  spawn();lastT=performance.now();
+}
+
+// ---------- физика ----------
+const FR=0.975, LIN=100, STOP=40, WALL=0.55;
+function step(dt){
+  // подшаги: ни одна кость не проходит больше 8px за подшаг — иначе туннелирование на 30fps
+  let vmax=0; for(const b of [saka,...bones]) if(b.alive) vmax=Math.max(vmax,Math.hypot(b.vx,b.vy));
+  const n=Math.max(1,Math.min(12,Math.ceil(vmax*dt/8)));
+  const h=dt/n;
+  for(let k=0;k<n;k++) substep(h);
+}
+function substep(dt){
+  const all=[saka,...bones.filter(b=>b.alive)];
+  for(const b of all){
+    if(!b.alive)continue;
+    b.x+=b.vx*dt;b.y+=b.vy*dt;
+    // экспоненциальное + линейное торможение: полный бросок гаснет за ~2с, а не 6
+    const v=Math.hypot(b.vx,b.vy);
+    if(v>0){ const f=Math.pow(FR,dt*60); const lin=Math.min(v,LIN*dt); const nv=v*f-lin; const k=Math.max(0,nv)/v; b.vx*=k;b.vy*=k; }
+    b.w*=Math.pow(0.96,dt*60); b.a=(b.a||0)+b.w*dt;
+    if(b.x<b.r){b.x=b.r;b.vx=-b.vx*WALL;b.hitWall=true;}
+    if(b.x>W-b.r){b.x=W-b.r;b.vx=-b.vx*WALL;b.hitWall=true;}
+    if(b.y<b.r+TOP){b.y=b.r+TOP;b.vy=-b.vy*WALL;b.hitWall=true;}
+    if(b.y>H-b.r-BOT){b.y=H-b.r-BOT;b.vy=-b.vy*WALL;b.hitWall=true;}
+    if(Math.hypot(b.vx,b.vy)<STOP){b.vx=0;b.vy=0;}
+  }
+  // столкновения
+  for(let i=0;i<all.length;i++)for(let j=i+1;j<all.length;j++){
+    const a=all[i],b=all[j];if(!a.alive||!b.alive)continue;
+    const dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy),min=a.r+b.r;
+    if(d<min&&d>0){
+      const nx=dx/d,ny=dy/d,ov=(min-d)/2;
+      a.x-=nx*ov;a.y-=ny*ov;b.x+=nx*ov;b.y+=ny*ov;
+      const rv=(b.vx-a.vx)*nx+(b.vy-a.vy)*ny;
+      if(rv<0){
+        const imp=-rv*0.9;
+        a.vx-=imp*nx;a.vy-=imp*ny;b.vx+=imp*nx;b.vy+=imp*ny;
+        onHit(a,b,Math.abs(rv));
+      }
+    }
+  }
+}
+
+let shotCtx=null;  // {sakaFace, touched:Set, resolved, firstBad}
+function onHit(a,b,v){
+  const other=(a===saka)?b:(b===saka)?a:null;
+  // судим по грани В МОМЕНТ КАСАНИЯ — до любого переката
+  if(shotCtx&&!shotCtx.resolved&&other&&!shotCtx.touched.has(other)){
+    shotCtx.touched.set(other, other.face);
+    if(other.face===shotCtx.sakaFace){ ring(other.x,other.y,FCOL[other.face]); }
+    else if(!shotCtx.firstBad){ shotCtx.firstBad=other; other.bad=0.8; flash(other.x,other.y,'#E0846A'); popAt(other.x,other.y-26,'чужая: '+FACES[other.face],'#E0846A'); }
+  }
+  // сбитая кость перекатывается — поле живёт (после судейства)
+  if(v>260){ const t=other||a; if(t!==saka){ t.face=pickFace(0); t.rolled=0.35; } }
+}
+
+function resolveShot(){
+  if(!shotCtx||shotCtx.resolved)return;
+  shotCtx.resolved=true;
+  const t=[...shotCtx.touched.keys()];
+  const faceAt=b=>shotCtx.touched.get(b);           // грань на момент касания
+  const strangers=t.filter(b=>faceAt(b)!==shotCtx.sakaFace);
+  if(t.length===0){ say('мимо'); }
+  else if(strangers.length>0){
+    foul++; shake=8;
+    if(held.length){ say('ФОЛ — рука сгорела ('+held.length+')'); held=[]; }
+    else { say('ФОЛ'); sakaFreeze=1.2; }   // пустая рука — фол не бесплатен: заморозка
+  } else {
+    for(const b of t){ b.alive=false; held.push(faceAt(b)); flash(b.x,b.y,FCOL[faceAt(b)]); }
+    popAt(saka.x,saka.y-30,'+'+t.length,'#F0E6D2');
+    while(held.length>=3){ held.splice(0,3); banked++; score+=3; big('БАСЫМ!'); flashBig(); }
+    // капельный долив: после каждого чистого удара на поле снова ~14
+    spawnMore(t.length);
+  }
+  // сака ложится новой гранью — pop и подпись
+  saka.face=pendingFace; pendingFace=-1; landPop=0.35;
+  if(saka.face===4){ startTalamai(); }
+  else {
+    popAt(saka.x,saka.y+saka.r+18,'сака → '+FACES[saka.face],FCOL[saka.face]);
+    // если пары нет — подсказать и разрешить перебросить
+    if(!bones.some(b=>b.alive&&b.face===saka.face)) say('нет пары — перебрось саку');
+  }
+}
+function spawnMore(n){
+  const R=Math.min(W,H)*0.05; let added=0,tries=0;
+  const want=Math.max(0,14-bones.filter(b=>b.alive).length);
+  const need=Math.min(n||1,want);
+  while(added<need&&tries<400){tries++;
+    const x=rnd(W*0.15,W*0.85);
+    // вкатываются сверху с начальной скоростью — не материализуются на месте
+    const b={x,y:TOP+R,r:R*0.78,face:pickFace(0),vx:rnd(-60,60),vy:rnd(180,320),w:rnd(-2,2),a:rnd(0,6.28),alive:true,spin:0};
+    if([saka,...bones.filter(o=>o.alive)].some(o=>Math.hypot(o.x-b.x,o.y-b.y)<R*2.1))continue;
+    bones.push(b);added++;}
+}
+// ---- таламай: сака встала на ребро — свалка, хватай руками ----
+function startTalamai(){
+  talamai=4; talTaken=0; big('ТАЛАМАЙ! хватай');
+  for(const b of bones) if(b.alive){ b.vx+=rnd(-220,220); b.vy+=rnd(-220,220); }
+}
+let sakaFreeze=0;
+
+function say(t){msgQ.push(t); if(msgT<=0){msg=msgQ.shift();msgT=1.8;}}
+function big(t){bigMsg=t;bigT=1.6;}
+function popAt(x,y,t,c){fx.push({x,y,vx:0,vy:-28,l:1.1,c,text:t});}
+function ring(x,y,c){fx.push({x,y,vx:0,vy:0,l:.5,c,ring:true});}
+function flash(x,y,c){for(let i=0;i<10;i++)fx.push({x,y,vx:rnd(-120,120),vy:rnd(-160,40),l:rnd(.3,.6),c});}
+function flashBig(){for(let i=0;i<24;i++)fx.push({x:W/2,y:TOP+30,vx:rnd(-200,200),vy:rnd(-60,160),l:rnd(.5,.9),c:'#F3DC8C'});}
+
+// ---------- ввод ----------
+function pt(e){return{x:e.clientX,y:e.clientY};}
+const MAXPULL=()=>Math.min(W,H)*0.30;
+const VMAX=1200;
+// закрутка = 2·стрела/хорда по ВСЕМУ жесту (первая точка хранится отдельно), нормировано в ±1 при ~0.15
+function calcSpin(){
+  if(!drag||drag.pts.length<3)return 0;
+  const a=drag.first, z=drag.pts[drag.pts.length-1];
+  const chord=Math.hypot(z.x-a.x,z.y-a.y); if(chord<12)return 0;
+  // максимальное знаковое отклонение точек от хорды
+  let best=0;
+  for(const m of drag.pts){ const c=((m.x-a.x)*(z.y-a.y)-(m.y-a.y)*(z.x-a.x))/chord; if(Math.abs(c)>Math.abs(best))best=c; }
+  return Math.max(-1,Math.min(1,(2*best/chord)/0.30));
+}
+cv.addEventListener('pointerdown',e=>{
+  if(!e.isPrimary)return;
+  if(over){start();return;}
+  if(!running)return;
+  const p=pt(e);
+  if(talamai>0){ // свалка: хватаем кости тапом
+    for(const b of bones){ if(b.alive&&Math.hypot(b.x-p.x,b.y-p.y)<b.r*2.2){ b.alive=false; held.push(b.face); talTaken++; flash(b.x,b.y,FCOL[b.face]);
+      while(held.length>=3){held.splice(0,3);banked++;score+=3;big('БАСЫМ!');} break; } }
+    return;
+  }
+  if(saka.moving||sakaFreeze>0)return;
+  if(Math.hypot(p.x-saka.x,p.y-saka.y)<saka.r*2.6){ drag={x0:p.x,y0:p.y,first:p,pts:[p],id:e.pointerId}; try{cv.setPointerCapture(e.pointerId);}catch(_){} }
+});
+cv.addEventListener('pointermove',e=>{ if(drag&&e.pointerId===drag.id){ drag.pts.push(pt(e)); if(drag.pts.length>240)drag.pts.splice(1,1); spinShow=calcSpin(); } });
+cv.addEventListener('pointerup',e=>{
+  if(!drag||e.pointerId!==drag.id)return;
+  const p=pt(e);
+  const dx=drag.x0-p.x, dy=drag.y0-p.y, d=Math.hypot(dx,dy);
+  if(d>18){
+    const pow=Math.min(1,d/MAXPULL());
+    const sp=pow*VMAX;                // линейная: ровный пробег 150→650px, квадрат давал разброс 40→1000
+    const spin=calcSpin();
+    saka.vx=dx/d*sp; saka.vy=dy/d*sp; saka.moving=true; saka.hitWall=false;
+    saka.spin=spin; saka.w=spin*18;
+    shotCtx={sakaFace:saka.face,touched:new Map(),resolved:false,firstBad:null};
+    pendingFace=sakaFace(spin);       // грань решится при посадке; в полёте сака нейтральна
+    saka.landed=false;
+  }
+  drag=null; spinShow=0;
+});
+cv.addEventListener('pointercancel',()=>{drag=null;spinShow=0;});
+
+// ---------- рендер ----------
+function drawBone(b,valid,isSaka,dim){
+  ctx.save();ctx.translate(b.x,b.y);
+  const inFlight=isSaka&&saka.moving&&!saka.landed;
+  let r=b.r; if(isSaka&&landPop>0){ r*=1+0.4*Math.sin(Math.PI*landPop/0.35); }
+  if(b.rolled>0) r*=1+0.25*Math.sin(Math.PI*b.rolled/0.35);
+  // тень
+  ctx.fillStyle='rgba(0,0,0,.35)';ctx.beginPath();ctx.ellipse(2,r*0.55,r*0.95,r*0.5,0,0,7);ctx.fill();
+  // валидная цель — свечение цветом грани; невалидная — приглушена
+  if(valid){ ctx.shadowColor=FCOL[b.face]; ctx.shadowBlur=14; }
+  if(dim) ctx.globalAlpha=0.42;
+  ctx.rotate(b.a||0);
+  const face=inFlight?-1:b.face;
+  const col=face<0?'#CFC2A8':(face===4?'#FFFFFF':FCOL[face]);
+  const dark=face<0?'#7A6E58':(face===4?'#BFB8A8':FDARK[face]);
+  // плоские грани (чик/бөк) — тело шире и ниже; боковые (алчы/таа) — уже и выше; айкүр — узкая стоячая
+  let sx=1,sy=1; if(face===2||face===3){sx=1.15;sy=0.85;} else if(face===0||face===1){sx=0.92;sy=1.08;} else if(face===4){sx=0.6;sy=1.3;}
+  ctx.scale(sx,sy);
+  const g=ctx.createRadialGradient(-r*0.3,-r*0.35,r*0.1,0,0,r*1.1);
+  g.addColorStop(0,col);g.addColorStop(1,dark);
+  ctx.fillStyle=g;ctx.shadowBlur=valid?14:0;
+  ctx.beginPath();
+  ctx.moveTo(-r,0);ctx.bezierCurveTo(-r,-r*0.9,-r*0.35,-r*0.95,0,-r*0.7);
+  ctx.bezierCurveTo(r*0.35,-r*0.95,r,-r*0.9,r,0);
+  ctx.bezierCurveTo(r,r*0.9,r*0.35,r*0.95,0,r*0.7);
+  ctx.bezierCurveTo(-r*0.35,r*0.95,-r,r*0.9,-r,0);ctx.fill();
+  ctx.shadowBlur=0;
+  if(b.bad>0){ ctx.fillStyle='rgba(224,132,106,'+Math.min(1,b.bad)+')'; ctx.fill(); }
+  // маркер грани: крупный, непрозрачный, разный силуэт — читается и без цвета
+  const mk=(face===0||face===1)?'#1A1410':'#F3ECDC';
+  ctx.fillStyle=mk;ctx.strokeStyle=mk;ctx.lineWidth=3;ctx.lineCap='round';
+  if(face===0){ctx.beginPath();ctx.arc(0,r*0.05,r*0.32,0,7);ctx.fill();}                       // алчы — залитая выемка
+  else if(face===1){ctx.beginPath();ctx.moveTo(-r*0.7,0);ctx.lineTo(r*0.7,0);ctx.stroke();}      // таа — полоса во всю ширину
+  else if(face===3){ctx.beginPath();ctx.moveTo(-r*0.42,-r*0.38);ctx.lineTo(r*0.42,r*0.38);ctx.moveTo(r*0.42,-r*0.38);ctx.lineTo(-r*0.42,r*0.38);ctx.stroke();} // бөк — X
+  // чик — пусто, плоская
+  ctx.restore();
+  if(isSaka){ ctx.save();ctx.translate(b.x,b.y);ctx.strokeStyle='#F0E6D2';ctx.lineWidth=2.5;ctx.beginPath();ctx.arc(0,0,b.r*1.12,0,7);ctx.stroke();ctx.restore(); }
+}
+// предсказание пролёта для прицела: точка остановки и первая кость на луче
+function predictShot(dx,dy,d){
+  const pow=Math.min(1,d/MAXPULL()); const v0=pow*VMAX;
+  // дистанция при exp+линейном торможении — численно, дёшево
+  let v=v0,dist=0; for(let i=0;i<400&&v>=STOP;i++){ dist+=v/60; const lin=Math.min(v,LIN/60); v=Math.max(0,v*FR-lin); }
+  const ux=dx/d,uy=dy/d;
+  // первая кость на луче
+  let hit=null,hd=1e9;
+  for(const b of bones){ if(!b.alive)continue;
+    const rx=b.x-saka.x,ry=b.y-saka.y; const t=rx*ux+ry*uy; if(t<0)continue;
+    const perp=Math.abs(rx*uy-ry*ux); const R=saka.r+b.r;
+    if(perp<R){ const tt=t-Math.sqrt(R*R-perp*perp); if(tt<hd){hd=tt;hit=b;} } }
+  return {dist,hit,hd,ux,uy};
+}
+
+function render(){
+  // войлок
+  ctx.fillStyle='#2A2018';ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='#3A2C20';ctx.fillRect(0,TOP,W,H-TOP-BOT);
+  for(let i=0;i<W;i+=37){ctx.fillStyle='rgba(0,0,0,.05)';ctx.fillRect(i,TOP,1,H);}
+  // шапка
+  ctx.fillStyle='#1A1410';ctx.fillRect(0,0,W,TOP);
+  const hy=SAT+20;
+  ctx.fillStyle='#F3DC8C';ctx.font='600 15px sans-serif';ctx.textBaseline='middle';
+  ctx.fillText('УПАЙ',14,hy);
+  ctx.fillStyle='#BFB29A';ctx.font='13px sans-serif';
+  ctx.fillText('басым '+banked+' · в руке',74,hy);
+  let hx=74+ctx.measureText('басым '+banked+' · в руке ').width+4;
+  for(let i=0;i<3;i++){ ctx.beginPath();ctx.arc(hx+i*15,hy,5.5,0,7); if(i<held.length){ctx.fillStyle=FCOL[held[i]];ctx.fill();} else {ctx.strokeStyle='#5A4E3C';ctx.lineWidth=1.5;ctx.stroke();} }
+  ctx.textAlign='right';ctx.fillStyle=timeLeft<10?'#E0846A':'#E8DCC4';ctx.font='600 16px sans-serif';
+  ctx.fillText(Math.ceil(timeLeft)+'с',W-14,hy);ctx.textAlign='left';
+
+  // подсветка: валидные — по грани саки (или по грани выстрела в полёте), невалидные — приглушены
+  const refFace = saka.moving&&shotCtx ? shotCtx.sakaFace : saka.face;
+  const showHint = running&&!over&&talamai<=0&&refFace<4;
+  for(const b of bones){ if(!b.alive)continue; const v=showHint&&b.face===refFace; drawBone(b, v, false, showHint&&!v&&!saka.moving); }
+  if(saka) drawBone(saka,false,true,false);
+
+  // прицел: предсказанный пролёт + призрак саки у первой кости
+  if(drag){
+    const p=drag.pts[drag.pts.length-1];
+    const dx=drag.x0-p.x,dy=drag.y0-p.y,d=Math.hypot(dx,dy);
+    if(d>6){
+      const pr=predictShot(dx,dy,d);
+      const L=Math.min(pr.dist, pr.hit?pr.hd:pr.dist);
+      // основная линия до первого контакта, бледный хвост — перелёт (куда уедет, если проскочит)
+      ctx.strokeStyle='rgba(240,230,210,.5)';ctx.lineWidth=2;ctx.setLineDash([6,6]);
+      ctx.beginPath();ctx.moveTo(saka.x,saka.y);ctx.lineTo(saka.x+pr.ux*L,saka.y+pr.uy*L);ctx.stroke();
+      if(pr.dist>L+10){ ctx.strokeStyle='rgba(240,230,210,.18)'; ctx.beginPath();ctx.moveTo(saka.x+pr.ux*L,saka.y+pr.uy*L);ctx.lineTo(saka.x+pr.ux*pr.dist,saka.y+pr.uy*pr.dist);ctx.stroke(); }
+      ctx.setLineDash([]);
+      // призрак в точке контакта: цвет говорит, своя грань или чужая
+      const gx=saka.x+pr.ux*L, gy=saka.y+pr.uy*L;
+      ctx.strokeStyle= pr.hit ? (pr.hit.face===saka.face?'#8FD9A0':'#E0846A') : 'rgba(240,230,210,.35)';
+      ctx.lineWidth=2.5;ctx.beginPath();ctx.arc(gx,gy,saka.r,0,7);ctx.stroke();
+      // индикатор закрутки — изогнутая стрелка у саки
+      if(Math.abs(spinShow)>0.08){
+        const sgn=spinShow>0?1:-1, mag=Math.abs(spinShow);
+        ctx.strokeStyle= spinShow>0 ? '#F3DC8C' : '#7A6FC0'; ctx.lineWidth=3;
+        ctx.beginPath(); ctx.arc(saka.x,saka.y,saka.r*1.7, sgn>0?-2.2:0.9, sgn>0?-2.2+mag*2.4:0.9+mag*2.4); ctx.stroke();
+        ctx.fillStyle=ctx.strokeStyle; ctx.font='11px sans-serif'; ctx.textAlign='center';
+        ctx.fillText(spinShow>0?'→ алчы/таа':'→ чик/бөк', saka.x, saka.y-saka.r*2.4); ctx.textAlign='left';
+      }
+    }
+  }
+  if(talamai>0){ ctx.fillStyle='rgba(243,220,140,.12)';ctx.fillRect(0,TOP,W,H-TOP-BOT);
+    ctx.textAlign='center';ctx.fillStyle='#F3DC8C';ctx.font='600 15px sans-serif';ctx.fillText('ТАЛАМАЙ · '+talamai.toFixed(1)+'с · взято '+talTaken,W/2,TOP+24);ctx.textAlign='left'; }
+  if(sakaFreeze>0){ ctx.fillStyle='rgba(224,132,106,.25)';ctx.beginPath();ctx.arc(saka.x,saka.y,saka.r*1.6,0,7);ctx.fill(); }
+  // частицы и всплывашки
+  for(const f of fx){
+    if(f.text){ ctx.globalAlpha=Math.max(0,Math.min(1,f.l*1.6)); ctx.fillStyle=f.c; ctx.font='600 14px sans-serif'; ctx.textAlign='center'; ctx.fillText(f.text,f.x,f.y); ctx.textAlign='left'; }
+    else if(f.ring){ ctx.globalAlpha=Math.max(0,f.l*2); ctx.strokeStyle=f.c; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(f.x,f.y,18+(0.5-f.l)*40,0,7); ctx.stroke(); }
+    else { ctx.globalAlpha=Math.max(0,f.l/0.6);ctx.fillStyle=f.c;ctx.beginPath();ctx.arc(f.x,f.y,4,0,7);ctx.fill(); }
+  }
+  ctx.globalAlpha=1;
+  // сообщения: очередь наверху + крупное по центру
+  if(msgT>0){ctx.textAlign='center';ctx.fillStyle='rgba(240,230,210,'+Math.min(1,msgT*2)+')';ctx.font='600 18px sans-serif';ctx.fillText(msg,W/2,TOP+28);ctx.textAlign='left';}
+  if(bigT>0){ctx.textAlign='center';ctx.fillStyle='rgba(243,220,140,'+Math.min(1,bigT*2)+')';ctx.font='700 30px sans-serif';ctx.fillText(bigMsg,W/2,H*0.42);ctx.textAlign='left';}
+  if(over){
+    ctx.fillStyle='rgba(14,10,8,.82)';ctx.fillRect(0,0,W,H);
+    ctx.textAlign='center';ctx.fillStyle='#E3B85A';ctx.font='600 30px sans-serif';ctx.fillText(score+' упай',W/2,H*0.4);
+    ctx.fillStyle='#BFB29A';ctx.font='15px sans-serif';
+    ctx.fillText('басымов '+banked+' · фолов '+foul+' · рекорд '+best,W/2,H*0.4+34);
+    ctx.fillText('нажми, чтобы сыграть ещё',W/2,H*0.4+70);ctx.textAlign='left';
+  }
+}
+
+function loop(t){
+  const dt=Math.min(0.033,(t-lastT)/1000);lastT=t;
+  if(running&&!over){
+    if(talamai>0){ talamai-=dt; if(talamai<=0){ talamai=0; say('таламай кончился'); saka.face=pickFace(0); } }
+    else timeLeft-=dt;
+    if(talamai<=0&&!saka.moving&&bones.filter(b=>b.alive).length<10) spawnMore(2);   // долив и после таламая
+    step(dt);
+    if(saka.moving){
+      // резолв по остановке САКИ; кости могут докатываться
+      if(saka.vx===0&&saka.vy===0){saka.moving=false;saka.landed=true;resolveShot();}
+    }
+    if(timeLeft<=0){ over=true; running=false; score+=held.length; best=Math.max(best,score); localStorage.setItem('upai_best',best); }
+  }
+  if(sakaFreeze>0)sakaFreeze-=dt;
+  if(landPop>0)landPop-=dt;
+  for(const b of bones){ if(b.rolled>0)b.rolled-=dt; if(b.bad>0)b.bad-=dt*1.5; }
+  if(bigT>0)bigT-=dt;
+  if(msgT>0){ msgT-=dt; if(msgT<=0&&msgQ.length){ msg=msgQ.shift(); msgT=1.8; } }
+  if(shake>0){shake-=dt*30;ctx.setTransform(DPR,0,0,DPR,rnd(-shake,shake),rnd(-shake,shake));}else ctx.setTransform(DPR,0,0,DPR,0,0);
+  for(const f of fx){f.x+=f.vx*dt;f.y+=f.vy*dt;f.vy+=300*dt;f.l-=dt;}
+  fx=fx.filter(f=>f.l>0);
+  render();
+  requestAnimationFrame(loop);
+}
+
+document.getElementById('go').onclick=()=>{document.getElementById('ov').classList.remove('on');start();};
+document.getElementById('ov').classList.add('on');
+spawn();
+window.__t={get:()=>({bones,saka,held,banked,foul,score,timeLeft,running,over,talamai}),pickFace,sakaFace,calcSpin,predictShot,start,step,resolveShot,FACES};
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
