@@ -266,16 +266,22 @@ const VMAX=1200;
 // закрутка = 2·стрела/хорда по ВСЕМУ жесту (первая точка хранится отдельно), нормировано в ±1 при ~0.15
 // Закрутка = кривизна ВСЕГО жеста: ведёшь дугой — крутишь. Как было.
 // Среднее отклонение точек от хорды + мёртвая зона против дрожания пальца.
+let lastSpin=0;
 function calcSpin(){
   if(!drag||drag.pts.length<3)return 0;
   const a=drag.first, z=drag.pts[drag.pts.length-1];
-  const chord=Math.hypot(z.x-a.x,z.y-a.y); if(chord<12)return 0;
+  const chord=Math.hypot(z.x-a.x,z.y-a.y); if(chord<12)return lastSpin;
+  // петля: хорда много короче пройденного пути (360 и вернулся) — формула взрывается.
+  // Держим прежнее значение: вернулся в ту же точку — цвет тот же.
+  let plen=0;
+  for(let i=1;i<drag.pts.length;i++) plen+=Math.hypot(drag.pts[i].x-drag.pts[i-1].x,drag.pts[i].y-drag.pts[i-1].y);
+  if(chord < 0.3*Math.min(plen,500)) return lastSpin;
   let sum=0;
   for(const m of drag.pts){ sum+=((m.x-a.x)*(z.y-a.y)-(m.y-a.y)*(z.x-a.x))/chord; }
   const v=Math.max(-1,Math.min(1,(3*(sum/drag.pts.length)/chord)/0.30));
   const DEAD=0.18;
-  if(Math.abs(v)<DEAD) return 0;
-  return (Math.abs(v)-DEAD)/(1-DEAD)*(v>0?1:-1);
+  if(Math.abs(v)<DEAD) return lastSpin=0;
+  return lastSpin=(Math.abs(v)-DEAD)/(1-DEAD)*(v>0?1:-1);
 }
 cv.addEventListener('pointerdown',e=>{
   if(!e.isPrimary)return;
@@ -288,13 +294,14 @@ cv.addEventListener('pointerdown',e=>{
     return;
   }
   if(saka.moving||sakaFreeze>0)return;
-  if(Math.hypot(p.x-saka.x,p.y-saka.y)<saka.r*2.6){ drag={x0:p.x,y0:p.y,first:p,pts:[p],id:e.pointerId}; try{cv.setPointerCapture(e.pointerId);}catch(_){} }
+  if(Math.hypot(p.x-saka.x,p.y-saka.y)<saka.r*2.6){ lastSpin=0; drag={x0:p.x,y0:p.y,first:p,pts:[p],id:e.pointerId}; try{cv.setPointerCapture(e.pointerId);}catch(_){} }
 });
 cv.addEventListener('pointermove',e=>{ if(drag&&e.pointerId===drag.id){ drag.pts.push(pt(e)); if(drag.pts.length>240)drag.pts.splice(1,1); spinShow=calcSpin(); } });
 cv.addEventListener('pointerup',e=>{
   if(!drag||e.pointerId!==drag.id)return;
   const p=pt(e);
-  const dx=drag.x0-p.x, dy=drag.y0-p.y, d=Math.hypot(dx,dy);
+  // летим ровно по нарисованной траектории: тот же сглаженный вектор, что в прицеле
+  const dx=aimInit?aimDX:(drag.x0-p.x), dy=aimInit?aimDY:(drag.y0-p.y), d=Math.hypot(dx,dy);
   if(d>18){
     const pow=Math.min(1,d/MAXPULL());
     const sp=pow*VMAX;                // линейная: ровный пробег 150→650px, квадрат давал разброс 40→1000
@@ -420,7 +427,7 @@ function render(){
   // подсветка: валидные — по грани саки (или по грани выстрела в полёте), невалидные — приглушены
   const refFace = saka.moving&&shotCtx ? shotCtx.sakaFace : saka.face;
   const showHint = running&&!over&&talamai<=0&&refFace<4&&D().hint!=='нет';
-  for(const b of bones){ if(!b.alive)continue; const v=showHint&&b.face===refFace; drawBone(b, v, false, showHint&&!v&&!saka.moving); }
+  for(const b of bones){ if(!b.alive)continue; const v=showHint&&b.face===refFace; drawBone(b, v, false, false); }  // все всегда яркие, свои — светятся
   if(saka) drawBone(saka,false,true,false);
 
   // прицел: предсказанный пролёт + призрак саки у первой кости
@@ -438,6 +445,12 @@ function render(){
         ctx.strokeStyle='rgba(240,230,210,.5)';ctx.lineWidth=2;ctx.setLineDash([6,6]);
         ctx.beginPath();ctx.moveTo(saka.x,saka.y);ctx.lineTo(saka.x+dx/u*70,saka.y+dy/u*70);ctx.stroke();ctx.setLineDash([]);
       } else {
+        // лента шириной с биток: показывает реальный коридор — видно, пролезает ли между косточками
+        ctx.lineCap='round';ctx.lineJoin='round';
+        ctx.strokeStyle='rgba(240,230,210,.08)';ctx.lineWidth=saka.r*2;
+        ctx.beginPath();ctx.moveTo(tr.path[0].x,tr.path[0].y);
+        for(let i=1;i<tr.path.length;i++) ctx.lineTo(tr.path[i].x,tr.path[i].y);
+        ctx.stroke();
         // полная трасса с отскоками от стен; после каждого отскока линия бледнее
         ctx.setLineDash([6,6]);ctx.lineWidth=2;
         for(let i=1;i<tr.path.length;i++){
