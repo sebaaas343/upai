@@ -368,13 +368,24 @@ function traceShot(dx,dy,d){
     const stepLen=v/60;
     let nx=x+ux*stepLen, ny=y+uy*stepLen;
     // косточка на этом отрезке?
+    let touch=null, touchT=1e9;
     for(const b of bones){
       if(!b.alive) continue;
       const rx=b.x-x, ry=b.y-y;
       const t=rx*ux+ry*uy;
       if(t<0||t>stepLen+R) continue;
       const perp=Math.abs(rx*uy-ry*ux);
-      if(perp<R+b.r){ hit=b; path.push({x:b.x-ux*(R+b.r)*0.6,y:b.y-uy*(R+b.r)*0.6}); return {path,hit,bounces}; }
+      if(perp<R+b.r && t<touchT){ touch=b; touchT=t; }
+    }
+    if(touch){
+      // точка, где биток встретит первую косточку
+      const cx=x+ux*Math.max(0,touchT-(R+touch.r)*0.6), cy=y+uy*Math.max(0,touchT-(R+touch.r)*0.6);
+      path.push({x:cx,y:cy});
+      // удар в середину зазора бьёт ОБЕ: собираем всех, кого биток касается в этой точке
+      const hits=[];
+      for(const b of bones){ if(b.alive && Math.hypot(b.x-cx,b.y-cy)<R+b.r+2) hits.push(b); }
+      if(!hits.includes(touch)) hits.push(touch);
+      return {path,hit:touch,hits,bounces};
     }
     // стены — отражаем и гасим, как в физике
     let bounced=false;
@@ -387,7 +398,7 @@ function traceShot(dx,dy,d){
     const lin=Math.min(v,LIN/60); v=Math.max(0,v*FR-lin);
   }
   path.push({x,y});
-  return {path,hit,bounces};
+  return {path,hit,hits:[],bounces};
 }
 function predictShot(dx,dy,d){
   const pow=Math.min(1,d/MAXPULL()); const v0=pow*VMAX;
@@ -463,13 +474,19 @@ function render(){
           ctx.fillStyle='rgba(240,230,210,.3)';ctx.beginPath();ctx.arc(tr.path[i].x,tr.path[i].y,4,0,7);ctx.fill();
         }
       }
-      // призрак в конце трассы: на «спокойно» цветной, на «обычно» нейтральный, на «жёстко» его нет
+      // призраки: кольцо на КАЖДОЙ косточке, которую заденет биток (удар в зазор бьёт обе)
       if(D().hint!=='нет'){
         const e=tr.path[tr.path.length-1];
-        ctx.strokeStyle = D().hint==='полная'
-          ? (tr.hit ? (tr.hit.face===saka.face?'#8FD9A0':'#E0846A') : 'rgba(240,230,210,.35)')
-          : 'rgba(240,230,210,.4)';
-        ctx.lineWidth=2.5;ctx.beginPath();ctx.arc(e.x,e.y,saka.r,0,7);ctx.stroke();
+        ctx.lineWidth=2.5;
+        if(tr.hits&&tr.hits.length){
+          for(const h of tr.hits){
+            ctx.strokeStyle = D().hint==='полная' ? (h.face===saka.face?'#8FD9A0':'#E0846A') : 'rgba(240,230,210,.4)';
+            ctx.beginPath();ctx.arc(h.x,h.y,h.r*1.35,0,7);ctx.stroke();
+          }
+        }
+        // и само место остановки битка
+        ctx.strokeStyle='rgba(240,230,210,.35)';
+        ctx.beginPath();ctx.arc(e.x,e.y,saka.r,0,7);ctx.stroke();
       }
       // индикатор закрутки — дуга у битка; при нулевой закрутке подписываем прямо
       if(Math.abs(spinShow)<0.05){
