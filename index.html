@@ -33,12 +33,12 @@
   <p><span class="sw" style="background:#F3DC8C"></span>жёлтая · <span class="sw" style="background:#5FB8B0"></span>бирюзовая · <span class="sw" style="background:#B24A30"></span>красная · <span class="sw" style="background:#7A6FC0"></span>фиолетовая</p>
 
   <h3>Как играть</h3>
-  <p>Внизу — твоя <b>битка</b>. Она тоже какого-то цвета. <b>Бить можно только по косточкам своего цвета.</b> Они светятся, остальные приглушены.</p>
-  <p><b>Потяни битку назад и отпусти</b> — как рогатку. Пунктир покажет, куда долетит. </p>
-  <p><b>Закрутка:</b> прицелился и замер — закрутки нет, цвет выпадет случайный. Хочешь закрутить — <b>уведи палец вбок прямо перед тем, как отпустить</b>. Подпись у битки всегда показывает, что получится.</p>
-  <p>Сбил свою — забрал. Битка осталась лежать и <b>поменяла цвет</b> — теперь целься в новый. <b>Задел чужую — промах</b>: всё, что в руке, рассыпалось. А если рука была пуста — битка замирает на секунду.</p>
-  <p>Три косточки — <b>в сейф</b>, оттуда уже не отобрать. Пока трёх нет — держишь в руке и рискуешь.</p>
-  <p>Изредка битка встаёт <b>на ребро</b>. Тогда <b>свалка</b>: четыре секунды правил нет, хватай косточки пальцем, сколько успеешь.</p>
+  <p>Внизу — твой <b>биток</b>. Он тоже какого-то цвета. <b>Бить можно только по косточкам своего цвета.</b> Они светятся, остальные приглушены.</p>
+  <p><b>Потяни биток назад и отпусти</b> — как рогатку. Пунктир покажет, куда долетит. </p>
+  <p><b>Закрутка:</b> прицелился и замер — закрутки нет, цвет выпадет случайный. Хочешь закрутить — <b>уведи палец вбок прямо перед тем, как отпустить</b>. Подпись у биток всегда показывает, что получится.</p>
+  <p>Сбил свою — забрал. Биток остался лежать и <b>поменял цвет</b> — теперь целься в новый. <b>Задел чужую — промах</b>: всё, что в руке, рассыпалось. А если рука была пуста — биток замирает на секунду.</p>
+  <p>Каждая сбитая косточка — очко. Бьёшь подряд — растёт <b>серия</b> и множитель к очкам: второе попадание даёт ×2, третье ×3 и так далее. <b>Серию рвёт промах</b> (и стоит жизни) <b>и переброс</b> — бросок, не задевший никого.</p>
+  <p><b>Десять попаданий подряд — свалка.</b> На пять секунд правило цвета снимается, и ты просто <b>тыкаешь пальцем в любые косточки</b>, сколько успеешь. Серию рвёт и промах, и переброс — так что свалку надо заслужить.</p>
 
   <h3>Цель</h3>
   <p>Собрать как можно больше. <b>Три промаха — конец.</b></p>
@@ -89,7 +89,7 @@ let diff=1, lives=3, wave=1, rr=3, waveNeed=8, waveGot=0;
 const D=()=>DIFFS[diff];
 
 // ---------- состояние ----------
-let bones=[], saka=null, held=[], banked=0, foul=0, score=0, best=+localStorage.getItem('upai_best')||0;
+let bones=[], saka=null, foul=0, score=0, combo=1, bestCombo=1, best=+localStorage.getItem('upai_best')||0;
 let running=false, over=false, lastT=0, msg='', msgT=0, shake=0;
 let msgQ=[], bigMsg='', bigT=0, landPop=0, pendingFace=-1, spinShow=0, talamai=0, talTaken=0;
 let drag=null;     // {x0,y0,pts:[]}
@@ -108,7 +108,7 @@ function pickFace(spin){
   return 3;
 }
 // айкүр — редкая стоячая поза саки, запускает таламай
-function sakaFace(spin){ return Math.random()<0.04 ? 4 : pickFace(spin); }
+function sakaFace(spin){ return pickFace(spin); }   // ребро убрано: свалку даёт серия из пяти
 
 function spawn(){
   bones=[];
@@ -125,7 +125,7 @@ function spawn(){
 }
 
 function start(){
-  held=[];banked=0;foul=0;score=0;running=true;over=false;msg='';fx=[];msgQ=[];bigMsg='';talamai=0;pendingFace=-1;
+  foul=0;score=0;combo=1;bestCombo=1;running=true;over=false;msg='';fx=[];msgQ=[];bigMsg='';talamai=0;pendingFace=-1;
   lives=D().lives; rr=D().rr; wave=1; waveGot=0; waveNeed=8; setSkew(D().skew0);
   spawn();lastT=performance.now();
 }
@@ -192,30 +192,34 @@ function resolveShot(){
   const strangers=t.filter(b=>faceAt(b)!==shotCtx.sakaFace);
   if(t.length===0){
     // бросок вхолостую = переброс. Кончились — стоит жизни.
-    if(rr>0){ rr--; say('переброс · осталось '+rr); }
-    else { lives--; shake=6; say('впустую — минус жизнь'); }
+    const lost = combo>1 ? ', серия ×'+combo+' сброшена' : '';
+    combo=1;                                   // переброс тоже рвёт серию
+    if(rr>0){ rr--; say('переброс · осталось '+rr+lost); }
+    else { lives--; shake=6; say('впустую — минус жизнь'+lost); }
   }
   else if(strangers.length>0){
     foul++; shake=10; lives--;
-    if(held.length){ say('ПРОМАХ — минус жизнь, рука сгорела ('+held.length+')'); held=[]; }
+    if(combo>1){ say('ПРОМАХ — минус жизнь, серия ×'+combo+' сброшена'); combo=1; }
     else { say('ПРОМАХ — минус жизнь'); }
   } else {
-    for(const b of t){ b.alive=false; held.push(faceAt(b)); flash(b.x,b.y,FCOL[faceAt(b)]); }
-    popAt(saka.x,saka.y-30,'+'+t.length,'#F0E6D2');
-    waveGot+=t.length;
-    while(held.length>=3){ held.splice(0,3); banked++; score+=3; big('В СЕЙФ!'); flashBig(); }
+    for(const b of t){ b.alive=false; flash(b.x,b.y,FCOL[faceAt(b)]); }
+    const add=t.length*combo;
+    score+=add; waveGot+=t.length;
+    popAt(saka.x,saka.y-30,'+'+add+(combo>1?' (×'+combo+')':''),'#F0E6D2');
+    bestCombo=Math.max(bestCombo,combo);
+    if(combo>=10){ combo=1; startTalamai(); }       // десять подряд — свалка как награда
+    else { combo++; if(combo>2) say('серия ×'+combo+' · до свалки '+(10-combo+1)); }
     if(waveGot>=waveNeed) nextWave();
     // капельный долив: после каждого чистого удара на поле снова ~14
     spawnMore(t.length);
   }
   if(lives<=0){ endGame(); return; }
-  // битка ложится новым цветом — pop и подпись
+  // биток ложится новым цветом — pop и подпись
   saka.face=pendingFace; pendingFace=-1; landPop=0.35;
-  if(saka.face===4){ startTalamai(); }
-  else {
-    popAt(saka.x,saka.y+saka.r+18,'битка → '+FACES[saka.face],FCOL[saka.face]);
+  {
+    popAt(saka.x,saka.y+saka.r+18,'биток → '+FACES[saka.face],FCOL[saka.face]);
     // если пары нет — подсказать и разрешить перебросить
-    if(!bones.some(b=>b.alive&&b.face===saka.face)) say('нет такого цвета — перебрось битку');
+    if(!bones.some(b=>b.alive&&b.face===saka.face)) say('нет такого цвета — перебрось биток');
   }
 }
 function spawnMore(n){
@@ -236,12 +240,13 @@ function nextWave(){
   say('перебросы восстановлены · редких цветов стало меньше');
 }
 function endGame(){
-  over=true; running=false; score+=held.length;
+  over=true; running=false;
   best=Math.max(best,score); localStorage.setItem('upai_best',best);
 }
-// ---- свалка: битка встала на ребро, хватай руками ----
+// ---- свалка: биток встала на ребро, хватай руками ----
 function startTalamai(){
-  talamai=4; talTaken=0; big('СВАЛКА! хватай');
+  talamai=5; talTaken=0; big('ДЕСЯТЬ ПОДРЯД — СВАЛКА!');
+  say('правило цвета снято · хватай косточки пальцем');
   for(const b of bones) if(b.alive){ b.vx+=rnd(-220,220); b.vy+=rnd(-220,220); }
 }
 let sakaFreeze=0;
@@ -283,8 +288,8 @@ cv.addEventListener('pointerdown',e=>{
   if(!running)return;
   const p=pt(e);
   if(talamai>0){ // свалка: хватаем кости тапом
-    for(const b of bones){ if(b.alive&&Math.hypot(b.x-p.x,b.y-p.y)<b.r*2.2){ b.alive=false; held.push(b.face); talTaken++; flash(b.x,b.y,FCOL[b.face]);
-      while(held.length>=3){held.splice(0,3);banked++;score+=3;big('В СЕЙФ!');} break; } }
+    for(const b of bones){ if(b.alive&&Math.hypot(b.x-p.x,b.y-p.y)<b.r*2.2){ b.alive=false; talTaken++; flash(b.x,b.y,FCOL[b.face]);
+      score+=1; waveGot++; if(waveGot>=waveNeed) nextWave(); break; } }
     return;
   }
   if(saka.moving||sakaFreeze>0)return;
@@ -325,7 +330,7 @@ function drawBone(b,valid,isSaka,dim){
   const col=face<0?'#CFC2A8':(face===4?'#FFFFFF':FCOL[face]);
   const dark=face<0?'#7A6E58':(face===4?'#BFB8A8':FDARK[face]);
   // плоские грани (чик/бөк) — тело шире и ниже; боковые (алчы/таа) — уже и выше; айкүр — узкая стоячая
-  let sx=1,sy=1; if(face===2||face===3){sx=1.15;sy=0.85;} else if(face===0||face===1){sx=0.92;sy=1.08;} else if(face===4){sx=0.6;sy=1.3;}
+  let sx=1,sy=1; if(face===2||face===3){sx=1.15;sy=0.85;} else if(face===0||face===1){sx=0.92;sy=1.08;}
   ctx.scale(sx,sy);
   const g=ctx.createRadialGradient(-r*0.3,-r*0.35,r*0.1,0,0,r*1.1);
   g.addColorStop(0,col);g.addColorStop(1,dark);
@@ -348,6 +353,40 @@ function drawBone(b,valid,isSaka,dim){
   if(isSaka){ ctx.save();ctx.translate(b.x,b.y);ctx.strokeStyle='#F0E6D2';ctx.lineWidth=2.5;ctx.beginPath();ctx.arc(0,0,b.r*1.12,0,7);ctx.stroke();ctx.restore(); }
 }
 // предсказание пролёта для прицела: точка остановки и первая кость на луче
+// Трассировка с отскоками: та же физика, что в substep — трение, стены с гашением 0.55.
+// Возвращает ломаную path и первую задетую косточку.
+function traceShot(dx,dy,d){
+  const pow=Math.min(1,d/MAXPULL());
+  let v=pow*VMAX;
+  const L=Math.hypot(dx,dy)||1;
+  let ux=dx/L, uy=dy/L;
+  let x=saka.x, y=saka.y, R=saka.r;
+  const path=[{x,y}]; let hit=null, bounces=0;
+  for(let i=0;i<600 && v>=STOP; i++){
+    const stepLen=v/60;
+    let nx=x+ux*stepLen, ny=y+uy*stepLen;
+    // косточка на этом отрезке?
+    for(const b of bones){
+      if(!b.alive) continue;
+      const rx=b.x-x, ry=b.y-y;
+      const t=rx*ux+ry*uy;
+      if(t<0||t>stepLen+R) continue;
+      const perp=Math.abs(rx*uy-ry*ux);
+      if(perp<R+b.r){ hit=b; path.push({x:b.x-ux*(R+b.r)*0.6,y:b.y-uy*(R+b.r)*0.6}); return {path,hit,bounces}; }
+    }
+    // стены — отражаем и гасим, как в физике
+    let bounced=false;
+    if(nx<R){ nx=R; ux=-ux; bounced=true; }
+    else if(nx>W-R){ nx=W-R; ux=-ux; bounced=true; }
+    if(ny<TOP+R){ ny=TOP+R; uy=-uy; bounced=true; }
+    else if(ny>H-BOT-R){ ny=H-BOT-R; uy=-uy; bounced=true; }
+    if(bounced){ v*=WALL; bounces++; path.push({x:nx,y:ny}); if(bounces>3) break; }
+    x=nx; y=ny;
+    const lin=Math.min(v,LIN/60); v=Math.max(0,v*FR-lin);
+  }
+  path.push({x,y});
+  return {path,hit,bounces};
+}
 function predictShot(dx,dy,d){
   const pow=Math.min(1,d/MAXPULL()); const v0=pow*VMAX;
   // дистанция при exp+линейном торможении — численно, дёшево
@@ -373,9 +412,7 @@ function render(){
   ctx.fillStyle='#F3DC8C';ctx.font='600 15px sans-serif';ctx.textBaseline='middle';
   ctx.fillText('КОСТОЧКИ',14,hy);
   ctx.fillStyle='#BFB29A';ctx.font='13px sans-serif';
-  ctx.fillText('сейф '+banked+' · в руке',74,hy);
-  let hx=74+ctx.measureText('сейф '+banked+' · в руке ').width+4;
-  for(let i=0;i<3;i++){ ctx.beginPath();ctx.arc(hx+i*15,hy,5.5,0,7); if(i<held.length){ctx.fillStyle=FCOL[held[i]];ctx.fill();} else {ctx.strokeStyle='#5A4E3C';ctx.lineWidth=1.5;ctx.stroke();} }
+  ctx.fillText(score+' очков'+(combo>1?'   серия ×'+combo:''),74,hy);
   // жизни справа
   ctx.textAlign='right';
   let lx=W-14;
@@ -396,22 +433,34 @@ function render(){
     const p=drag.pts[drag.pts.length-1];
     const dx=drag.x0-p.x,dy=drag.y0-p.y,d=Math.hypot(dx,dy);
     if(d>6){
-      const pr=predictShot(dx,dy,d);
-      const L=Math.min(pr.dist, pr.hit?pr.hd:pr.dist);
-      // основная линия до первого контакта, бледный хвост — перелёт (куда уедет, если проскочит)
-      ctx.strokeStyle='rgba(240,230,210,.5)';ctx.lineWidth=2;ctx.setLineDash([6,6]);
-      ctx.beginPath();ctx.moveTo(saka.x,saka.y);ctx.lineTo(saka.x+pr.ux*L,saka.y+pr.uy*L);ctx.stroke();
-      if(pr.dist>L+10){ ctx.strokeStyle='rgba(240,230,210,.18)'; ctx.beginPath();ctx.moveTo(saka.x+pr.ux*L,saka.y+pr.uy*L);ctx.lineTo(saka.x+pr.ux*pr.dist,saka.y+pr.uy*pr.dist);ctx.stroke(); }
-      ctx.setLineDash([]);
-      // призрак: на «спокойно» цветной (говорит, свой или чужой), на «обычно» нейтральный, на «жёстко» его нет
-      const gx=saka.x+pr.ux*L, gy=saka.y+pr.uy*L;
-      if(D().hint!=='нет'){
-        ctx.strokeStyle = D().hint==='полная'
-          ? (pr.hit ? (pr.hit.face===saka.face?'#8FD9A0':'#E0846A') : 'rgba(240,230,210,.35)')
-          : 'rgba(240,230,210,.4)';
-        ctx.lineWidth=2.5;ctx.beginPath();ctx.arc(gx,gy,saka.r,0,7);ctx.stroke();
+      const tr=traceShot(dx,dy,d);
+      // на «жёстко» — только короткий отрезок направления, без трассы и отскоков
+      if(D().hint==='нет'){
+        const u=Math.hypot(dx,dy)||1;
+        ctx.strokeStyle='rgba(240,230,210,.5)';ctx.lineWidth=2;ctx.setLineDash([6,6]);
+        ctx.beginPath();ctx.moveTo(saka.x,saka.y);ctx.lineTo(saka.x+dx/u*70,saka.y+dy/u*70);ctx.stroke();ctx.setLineDash([]);
+      } else {
+        // полная трасса с отскоками от стен; после каждого отскока линия бледнее
+        ctx.setLineDash([6,6]);ctx.lineWidth=2;
+        for(let i=1;i<tr.path.length;i++){
+          ctx.strokeStyle='rgba(240,230,210,'+Math.max(0.12,0.5-(i-1)*0.13)+')';
+          ctx.beginPath();ctx.moveTo(tr.path[i-1].x,tr.path[i-1].y);ctx.lineTo(tr.path[i].x,tr.path[i].y);ctx.stroke();
+        }
+        ctx.setLineDash([]);
+        // отметки в точках отскока
+        for(let i=1;i<tr.path.length-1;i++){
+          ctx.fillStyle='rgba(240,230,210,.3)';ctx.beginPath();ctx.arc(tr.path[i].x,tr.path[i].y,4,0,7);ctx.fill();
+        }
       }
-      // индикатор закрутки — дуга у битки; при нулевой закрутке подписываем прямо
+      // призрак в конце трассы: на «спокойно» цветной, на «обычно» нейтральный, на «жёстко» его нет
+      if(D().hint!=='нет'){
+        const e=tr.path[tr.path.length-1];
+        ctx.strokeStyle = D().hint==='полная'
+          ? (tr.hit ? (tr.hit.face===saka.face?'#8FD9A0':'#E0846A') : 'rgba(240,230,210,.35)')
+          : 'rgba(240,230,210,.4)';
+        ctx.lineWidth=2.5;ctx.beginPath();ctx.arc(e.x,e.y,saka.r,0,7);ctx.stroke();
+      }
+      // индикатор закрутки — дуга у битка; при нулевой закрутке подписываем прямо
       if(Math.abs(spinShow)<0.05){
         ctx.fillStyle='rgba(243,236,220,.45)';ctx.font='11px sans-serif';ctx.textAlign='center';
         ctx.fillText('без закрутки — цвет случайный',saka.x,saka.y-saka.r*2.4);ctx.textAlign='left';
@@ -442,7 +491,7 @@ function render(){
     ctx.fillStyle='rgba(14,10,8,.82)';ctx.fillRect(0,0,W,H);
     ctx.textAlign='center';ctx.fillStyle='#E3B85A';ctx.font='600 30px sans-serif';ctx.fillText(score+' очков',W/2,H*0.4);
     ctx.fillStyle='#BFB29A';ctx.font='15px sans-serif';
-    ctx.fillText('волна '+wave+' · в сейфе '+banked+' · промахов '+foul+' · рекорд '+best,W/2,H*0.4+34);
+    ctx.fillText('волна '+wave+' · лучшая серия ×'+bestCombo+' · промахов '+foul+' · рекорд '+best,W/2,H*0.4+34);
     ctx.fillText('нажми, чтобы сыграть ещё',W/2,H*0.4+70);ctx.textAlign='left';
   }
 }
@@ -488,7 +537,7 @@ paintDiff();
 document.getElementById('go').onclick=()=>{document.getElementById('ov').classList.remove('on');start();};
 document.getElementById('ov').classList.add('on');
 spawn();
-window.__t={get:()=>({bones,saka,held,banked,foul,score,lives,wave,rr,waveGot,waveNeed,diff,BASEP,running,over,talamai}),pickFace,sakaFace,calcSpin,predictShot,setSkew,nextWave,start,step,resolveShot,DIFFS,FACES};
+window.__t={get:()=>({bones,saka,foul,score,combo,bestCombo,lives,wave,rr,waveGot,waveNeed,diff,BASEP,running,over,talamai}),pickFace,sakaFace,calcSpin,predictShot,setSkew,nextWave,start,step,resolveShot,DIFFS,FACES};
 requestAnimationFrame(loop);
 </script>
 </body>
