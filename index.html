@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-<title>ФРУКТОВЫЙ БИТОК</title>
+<title>КОСТОЧКИ НА КОВРЕ</title>
 <style>
   :root{--sat:env(safe-area-inset-top,0px);--sab:env(safe-area-inset-bottom,0px)}
   html,body{margin:0;height:100%;background:#1a1410;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
@@ -28,26 +28,26 @@
 <canvas id="c"></canvas>
 
 <div id="ov"><div class="box">
-  <h2>ФРУКТОВЫЙ БИТОК <span style="font-size:12px;color:#8E8371;letter-spacing:0">· рабочее название</span></h2>
-  <p>На столе рассыпаны фрукты четырёх видов — как на барабанах игрового автомата:</p>
-  <p><span class="sw" style="background:#E0393E"></span>вишня · <span class="sw" style="background:#F5D547"></span>лимон · <span class="sw" style="background:#8A5BC2"></span>виноград · <span class="sw" style="background:#4FB65A"></span>арбуз</p>
+  <h2>КОСТОЧКИ НА КОВРЕ</h2>
+  <p>На ковре рассыпаны косточки. Каждая упала на один из четырёх боков — и от этого зависит её цвет:</p>
+  <p><span class="sw" style="background:#F3DC8C"></span>жёлтая · <span class="sw" style="background:#5FB8B0"></span>бирюзовая · <span class="sw" style="background:#B24A30"></span>красная · <span class="sw" style="background:#7A6FC0"></span>фиолетовая</p>
 
   <h3>Как играть</h3>
-  <p>Внизу — твой <b>биток</b>, косточка. На нём нарисован фрукт. <b>Бить можно только по таким же фруктам.</b> Они светятся, остальные приглушены.</p>
+  <p>Внизу — твой <b>биток</b>. Он тоже какого-то цвета. <b>Бить можно только по косточкам своего цвета.</b> Они светятся, остальные приглушены.</p>
   <p><b>Потяни биток назад и отпусти</b> — как рогатку. Пунктир покажет, куда долетит. </p>
-  <p><b>Закрутка:</b> прицелился и замер — закрутки нет, фрукт выпадет случайный. Хочешь закрутить — <b>уведи палец вбок прямо перед тем, как отпустить</b>. Подпись у битка всегда показывает, что получится.</p>
-  <p>Сбил свой фрукт — забрал. Биток остался лежать и <b>сменил фрукт</b> — теперь целься в новый. <b>Задел чужой фрукт — промах</b>.</p>
-  <p>Каждый сбитый фрукт — очко. Бьёшь подряд — растёт <b>серия</b> и множитель к очкам: второе попадание даёт ×2, третье ×3 и так далее. <b>Серию рвёт промах</b> (и стоит жизни) <b>и переброс</b> — бросок, не задевший никого.</p>
-  <p><b>Десять попаданий подряд — свалка.</b> На пять секунд правило снимается, и ты просто <b>тыкаешь пальцем в любые фрукты</b>, сколько успеешь. Серию рвёт и промах, и переброс — так что свалку надо заслужить.</p>
+  <p><b>Закрутка:</b> прицелился и замер — закрутки нет, цвет выпадет случайный. Хочешь закрутить — <b>уведи палец вбок прямо перед тем, как отпустить</b>. Подпись у биток всегда показывает, что получится.</p>
+  <p>Сбил свою — забрал. Биток остался лежать и <b>поменял цвет</b> — теперь целься в новый. <b>Задел чужую — промах</b>: всё, что в руке, рассыпалось. А если рука была пуста — биток замирает на секунду.</p>
+  <p>Каждая сбитая косточка — очко. Бьёшь подряд — растёт <b>серия</b> и множитель к очкам: второе попадание даёт ×2, третье ×3 и так далее. <b>Серию рвёт промах</b> (и стоит жизни) <b>и переброс</b> — бросок, не задевший никого.</p>
+  <p><b>Десять попаданий подряд — свалка.</b> На пять секунд правило цвета снимается, и ты просто <b>тыкаешь пальцем в любые косточки</b>, сколько успеешь. Серию рвёт и промах, и переброс — так что свалку надо заслужить.</p>
 
   <h3>Цель</h3>
   <p>Собрать как можно больше. <b>Три промаха — конец.</b></p>
   <p>Бросок, который никого не задел, — это <b>переброс</b>, их ограниченное число на волну. Кончились перебросы — холостой бросок тоже стоит жизни.</p>
-  <p>Каждая волна раскладка перекашивается: редких фруктов всё меньше, и выпасть редким всё опаснее. Тут и нужна закрутка — ложись в тот фрукт, которого на столе много.</p>
+  <p>Каждая волна раскладка цветов становится перекошеннее: редких косточек всё меньше, и лечь редким цветом всё опаснее. Тут и нужна закрутка — ложись в тот цвет, которого на ковре много.</p>
 
   <div class="warn">
     <h3>Честно</h3>
-    <p>В основе — кыргызско-казахская игра в альчики, бараньи косточки. Правило «бить только своего» и промах за касание чужого — оттуда. Фрукты, жизни, серии и реальное время — уже наша адаптация.</p>
+    <p>В основе — кыргызско-казахская игра в альчики (бараньи косточки). Правило «бить только свой цвет», промах за касание чужой и «рука до трёх» взяты из этнографических источников. Реальное время, таймер и потеря руки при промахе — уже наша адаптация: оригинал пошаговый и идёт часами.</p>
   </div>
   <h3>Сложность</h3>
   <p id="dsel">
@@ -68,9 +68,9 @@ function resize(){DPR=Math.min(2,devicePixelRatio||1);W=innerWidth;H=innerHeight
 addEventListener('resize',resize);resize();
 
 // ---------- грани ----------
-const FACES=['ВИШНЯ','ЛИМОН','ВИНОГРАД','АРБУЗ'];
-const FCOL=['#E0393E','#F5D547','#8A5BC2','#4FB65A'];
-const FDARK=['#8E1F24','#B08F1C','#4E2E7E','#276A31'];
+const FACES=['ЖЁЛТАЯ','БИРЮЗОВАЯ','КРАСНАЯ','ФИОЛЕТОВАЯ'];
+const FCOL=['#F3DC8C','#5FB8B0','#B24A30','#7A6FC0'];
+const FDARK=['#9A7A2A','#2C6A64','#6A2A18','#433A7A'];
 // раскладка цветов на ковре. Чем дальше волна — тем сильнее перекос,
 // тем реже редкие цвета и тем чаще «цели нет». Это и есть нарастание сложности.
 const P_EVEN=[0.25,0.25,0.25,0.25];
@@ -220,7 +220,7 @@ function resolveShot(){
   {
     popAt(saka.x,saka.y+saka.r+18,'биток → '+FACES[saka.face],FCOL[saka.face]);
     // если пары нет — подсказать и разрешить перебросить
-    if(!bones.some(b=>b.alive&&b.face===saka.face)) say('таких фруктов нет — перебрось биток');
+    if(!bones.some(b=>b.alive&&b.face===saka.face)) say('нет такого цвета — перебрось биток');
   }
 }
 function spawnMore(n){
@@ -318,79 +318,42 @@ cv.addEventListener('pointerup',e=>{
 cv.addEventListener('pointercancel',()=>{drag=null;spinShow=0;aimInit=false;});
 
 // ---------- рендер ----------
-// ---- фрукты из игрового автомата: вишня, лимон, виноград, арбуз ----
-// Плоско и ярко, как на барабанах. Четыре разных силуэта — читаются и без цвета.
-function fruitPath(face,r){
-  const L=ctx.lineWidth;
-  if(face===0){ // ВИШНЯ: две ягоды на развилке черенка
-    ctx.fillStyle=FCOL[0];
-    ctx.beginPath();ctx.arc(-r*0.42,r*0.28,r*0.5,0,7);ctx.fill();
-    ctx.beginPath();ctx.arc(r*0.42,r*0.36,r*0.5,0,7);ctx.fill();
-    ctx.fillStyle='rgba(255,255,255,.35)';
-    ctx.beginPath();ctx.arc(-r*0.58,r*0.1,r*0.16,0,7);ctx.fill();
-    ctx.beginPath();ctx.arc(r*0.26,r*0.18,r*0.16,0,7);ctx.fill();
-    ctx.strokeStyle='#4E8A3A';ctx.lineWidth=Math.max(2,r*0.16);ctx.lineCap='round';
-    ctx.beginPath();ctx.moveTo(-r*0.38,-r*0.1);ctx.quadraticCurveTo(-r*0.1,-r*0.9,r*0.1,-r*0.95);ctx.stroke();
-    ctx.beginPath();ctx.moveTo(r*0.4,-r*0.05);ctx.quadraticCurveTo(r*0.25,-r*0.7,r*0.1,-r*0.95);ctx.stroke();
-    ctx.fillStyle='#5FA84A';ctx.beginPath();ctx.ellipse(r*0.3,-r*0.85,r*0.32,r*0.16,-0.5,0,7);ctx.fill();
-  } else if(face===1){ // ЛИМОН: овал с носиками
-    ctx.fillStyle=FCOL[1];
-    ctx.beginPath();ctx.ellipse(0,0,r*0.95,r*0.62,0,0,7);ctx.fill();
-    ctx.beginPath();ctx.arc(-r*0.95,0,r*0.18,0,7);ctx.fill();
-    ctx.beginPath();ctx.arc(r*0.95,0,r*0.18,0,7);ctx.fill();
-    ctx.fillStyle='rgba(255,255,255,.4)';
-    ctx.beginPath();ctx.ellipse(-r*0.25,-r*0.22,r*0.36,r*0.14,-0.3,0,7);ctx.fill();
-    ctx.fillStyle='#5FA84A';ctx.beginPath();ctx.ellipse(r*0.55,-r*0.5,r*0.3,r*0.13,-0.7,0,7);ctx.fill();
-  } else if(face===2){ // ВИНОГРАД: гроздь из кружков
-    ctx.fillStyle=FCOL[2];
-    const g=[[0,-r*0.05],[-r*0.45,-r*0.3],[r*0.45,-r*0.3],[-r*0.24,r*0.3],[r*0.24,r*0.3],[0,r*0.62],[-r*0.5,r*0.05],[r*0.5,r*0.05]];
-    for(const [x,y] of g){ctx.beginPath();ctx.arc(x,y,r*0.3,0,7);ctx.fill();}
-    ctx.fillStyle='rgba(255,255,255,.3)';
-    for(const [x,y] of g.slice(0,4)){ctx.beginPath();ctx.arc(x-r*0.1,y-r*0.1,r*0.1,0,7);ctx.fill();}
-    ctx.strokeStyle='#7A5A2E';ctx.lineWidth=Math.max(2,r*0.14);ctx.lineCap='round';
-    ctx.beginPath();ctx.moveTo(0,-r*0.35);ctx.lineTo(0,-r*0.95);ctx.stroke();
-    ctx.fillStyle='#5FA84A';ctx.beginPath();ctx.ellipse(r*0.28,-r*0.8,r*0.32,r*0.15,-0.4,0,7);ctx.fill();
-  } else { // АРБУЗ: ломтик — полукруг, зелёная корка, красная мякоть, косточки
-    ctx.fillStyle='#2E8B3C';
-    ctx.beginPath();ctx.arc(0,-r*0.15,r*0.98,0,Math.PI);ctx.closePath();ctx.fill();
-    ctx.fillStyle='#DFF0D0';
-    ctx.beginPath();ctx.arc(0,-r*0.15,r*0.84,0,Math.PI);ctx.closePath();ctx.fill();
-    ctx.fillStyle='#E9474E';
-    ctx.beginPath();ctx.arc(0,-r*0.15,r*0.74,0,Math.PI);ctx.closePath();ctx.fill();
-    ctx.fillStyle='#2A1A10';
-    for(const [x,y] of [[-r*0.35,r*0.18],[0,r*0.32],[r*0.35,r*0.18],[-r*0.12,r*0.05],[r*0.18,r*0.08]]){ctx.beginPath();ctx.ellipse(x,y,r*0.07,r*0.12,0,0,7);ctx.fill();}
-  }
-  ctx.lineWidth=L;
-}
 function drawBone(b,valid,isSaka,dim){
   ctx.save();ctx.translate(b.x,b.y);
   const inFlight=isSaka&&saka.moving&&!saka.landed;
   let r=b.r; if(isSaka&&landPop>0){ r*=1+0.4*Math.sin(Math.PI*landPop/0.35); }
   if(b.rolled>0) r*=1+0.25*Math.sin(Math.PI*b.rolled/0.35);
   // тень
-  ctx.fillStyle='rgba(0,0,0,.35)';ctx.beginPath();ctx.ellipse(2,r*0.6,r*0.95,r*0.45,0,0,7);ctx.fill();
-  if(valid){ ctx.shadowColor=FCOL[b.face]; ctx.shadowBlur=16; }
-  if(dim) ctx.globalAlpha=0.38;
+  ctx.fillStyle='rgba(0,0,0,.35)';ctx.beginPath();ctx.ellipse(2,r*0.55,r*0.95,r*0.5,0,0,7);ctx.fill();
+  // валидная цель — свечение цветом грани; невалидная — приглушена
+  if(valid){ ctx.shadowColor=FCOL[b.face]; ctx.shadowBlur=14; }
+  if(dim) ctx.globalAlpha=0.42;
   ctx.rotate(b.a||0);
-  if(isSaka){
-    // БИТОК — косточка (семечко): нейтральный, ни на один фрукт не похож, а цвет фрукта носит как метку
-    const face=inFlight?-1:b.face;
-    const g=ctx.createRadialGradient(-r*0.3,-r*0.3,r*0.1,0,0,r*1.1);
-    g.addColorStop(0,'#E9DCC3');g.addColorStop(1,'#8E7A58');
-    ctx.fillStyle=g;ctx.shadowBlur=0;
-    ctx.beginPath();ctx.ellipse(0,0,r*0.78,r*0.98,0,0,7);ctx.fill();
-    ctx.strokeStyle='rgba(0,0,0,.25)';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(0,-r*0.7);ctx.quadraticCurveTo(r*0.25,0,0,r*0.7);ctx.stroke();
-    // метка: каким фруктом «стал» биток — маленький фрукт на нём
-    if(face>=0){ ctx.save(); ctx.translate(0,r*0.05); ctx.scale(0.55,0.55); fruitPath(face,r); ctx.restore(); }
-    else { ctx.fillStyle='rgba(0,0,0,.35)';ctx.font='600 '+Math.round(r*1.1)+'px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('?',0,r*0.05); }
-  } else {
-    ctx.shadowBlur=valid?16:0;
-    fruitPath(b.face,r);
-    ctx.shadowBlur=0;
-  }
-  if(b.bad>0){ ctx.fillStyle='rgba(224,80,80,'+Math.min(1,b.bad)*0.55+')'; ctx.beginPath();ctx.arc(0,0,r*1.05,0,7);ctx.fill(); }
+  const face=inFlight?-1:b.face;
+  const col=face<0?'#CFC2A8':(face===4?'#FFFFFF':FCOL[face]);
+  const dark=face<0?'#7A6E58':(face===4?'#BFB8A8':FDARK[face]);
+  // плоские грани (чик/бөк) — тело шире и ниже; боковые (алчы/таа) — уже и выше; айкүр — узкая стоячая
+  let sx=1,sy=1; if(face===2||face===3){sx=1.15;sy=0.85;} else if(face===0||face===1){sx=0.92;sy=1.08;}
+  ctx.scale(sx,sy);
+  const g=ctx.createRadialGradient(-r*0.3,-r*0.35,r*0.1,0,0,r*1.1);
+  g.addColorStop(0,col);g.addColorStop(1,dark);
+  ctx.fillStyle=g;ctx.shadowBlur=valid?14:0;
+  ctx.beginPath();
+  ctx.moveTo(-r,0);ctx.bezierCurveTo(-r,-r*0.9,-r*0.35,-r*0.95,0,-r*0.7);
+  ctx.bezierCurveTo(r*0.35,-r*0.95,r,-r*0.9,r,0);
+  ctx.bezierCurveTo(r,r*0.9,r*0.35,r*0.95,0,r*0.7);
+  ctx.bezierCurveTo(-r*0.35,r*0.95,-r,r*0.9,-r,0);ctx.fill();
+  ctx.shadowBlur=0;
+  if(b.bad>0){ ctx.fillStyle='rgba(224,132,106,'+Math.min(1,b.bad)+')'; ctx.fill(); }
+  // маркер грани: крупный, непрозрачный, разный силуэт — читается и без цвета
+  const mk=(face===0||face===1)?'#1A1410':'#F3ECDC';
+  ctx.fillStyle=mk;ctx.strokeStyle=mk;ctx.lineWidth=3;ctx.lineCap='round';
+  if(face===0){ctx.beginPath();ctx.arc(0,r*0.05,r*0.32,0,7);ctx.fill();}                       // алчы — залитая выемка
+  else if(face===1){ctx.beginPath();ctx.moveTo(-r*0.7,0);ctx.lineTo(r*0.7,0);ctx.stroke();}      // таа — полоса во всю ширину
+  else if(face===3){ctx.beginPath();ctx.moveTo(-r*0.42,-r*0.38);ctx.lineTo(r*0.42,r*0.38);ctx.moveTo(r*0.42,-r*0.38);ctx.lineTo(-r*0.42,r*0.38);ctx.stroke();} // бөк — X
+  // чик — пусто, плоская
   ctx.restore();
-  if(isSaka){ ctx.save();ctx.translate(b.x,b.y);ctx.strokeStyle='#F0E6D2';ctx.lineWidth=2.5;ctx.beginPath();ctx.arc(0,0,b.r*1.18,0,7);ctx.stroke();ctx.restore(); }
+  if(isSaka){ ctx.save();ctx.translate(b.x,b.y);ctx.strokeStyle='#F0E6D2';ctx.lineWidth=2.5;ctx.beginPath();ctx.arc(0,0,b.r*1.12,0,7);ctx.stroke();ctx.restore(); }
 }
 // предсказание пролёта для прицела: точка остановки и первая кость на луче
 // Трассировка с отскоками: та же физика, что в substep — трение, стены с гашением 0.55.
@@ -450,7 +413,7 @@ function render(){
   ctx.fillStyle='#1A1410';ctx.fillRect(0,0,W,TOP);
   const hy=SAT+16;
   ctx.fillStyle='#F3DC8C';ctx.font='600 15px sans-serif';ctx.textBaseline='middle';
-  ctx.fillText('БИТОК',14,hy);
+  ctx.fillText('КОСТОЧКИ',14,hy);
   ctx.fillStyle='#BFB29A';ctx.font='13px sans-serif';
   ctx.fillText(score+' очков'+(combo>1?'   серия ×'+combo:''),74,hy);
   // жизни справа
@@ -472,7 +435,7 @@ function render(){
   if(drag){
     const p=drag.pts[drag.pts.length-1];
     const rdx=drag.x0-p.x,rdy=drag.y0-p.y;
-    // сглаженный вектор оттяжки: убирает дрожание пальца из прицела (трасса после отскока усиливала его в 5 раз)
+    // сглаженный вектор оттяжки: дрожание пальца в 1px после отскока давало 2–7px скачков трассы
     if(!aimInit){aimDX=rdx;aimDY=rdy;aimInit=true;} else {aimDX+=(rdx-aimDX)*0.35;aimDY+=(rdy-aimDY)*0.35;}
     const dx=aimDX,dy=aimDY,d=Math.hypot(dx,dy);
     if(d>6){
@@ -506,13 +469,13 @@ function render(){
       // индикатор закрутки — дуга у битка; при нулевой закрутке подписываем прямо
       if(!spinOn){
         ctx.fillStyle='rgba(243,236,220,.45)';ctx.font='11px sans-serif';ctx.textAlign='center';
-        ctx.fillText('без закрутки — фрукт случайный',saka.x,saka.y-saka.r*2.4);ctx.textAlign='left';
+        ctx.fillText('без закрутки — цвет случайный',saka.x,saka.y-saka.r*2.4);ctx.textAlign='left';
       } else {
         const sgn=spinUI>0?1:-1, mag=Math.min(1,Math.abs(spinUI));
         ctx.strokeStyle= spinUI>0 ? '#F3DC8C' : '#7A6FC0'; ctx.lineWidth=3;
         ctx.beginPath(); ctx.arc(saka.x,saka.y,saka.r*1.7, sgn>0?-2.2:0.9, sgn>0?-2.2+mag*2.4:0.9+mag*2.4); ctx.stroke();
         ctx.fillStyle=ctx.strokeStyle; ctx.font='11px sans-serif'; ctx.textAlign='center';
-        ctx.fillText(spinUI>0?'→ вишня / лимон':'→ виноград / арбуз', saka.x, saka.y-saka.r*2.4); ctx.textAlign='left';
+        ctx.fillText(spinUI>0?'→ жёлтая/бирюзовая':'→ красная/фиолетовая', saka.x, saka.y-saka.r*2.4); ctx.textAlign='left';
       }
     }
   }
@@ -554,7 +517,7 @@ function loop(t){
   for(const b of bones){ if(b.rolled>0)b.rolled-=dt; if(b.bad>0)b.bad-=dt*1.5; }
   // закрутка пересчитывается каждый кадр по текущему времени — история жеста не трогается
   spinShow = drag ? calcSpin(performance.now()) : 0;
-  // сглаживание для глаза: 0.12 с до цели, и гистерезис, чтобы подпись не дребезжала на пороге
+  // сглаживание для глаза + гистерезис, чтобы подпись не дребезжала на пороге
   spinUI += (spinShow-spinUI)*Math.min(1,dt*8);
   if(!spinOn && Math.abs(spinUI)>0.12) spinOn=true;
   if(spinOn && Math.abs(spinUI)<0.04) spinOn=false;
