@@ -34,7 +34,8 @@
 
   <h3>Как играть</h3>
   <p>Внизу — твоя <b>битка</b>. Она тоже какого-то цвета. <b>Бить можно только по косточкам своего цвета.</b> Они светятся, остальные приглушены.</p>
-  <p><b>Потяни битку назад и отпусти</b> — как рогатку. Пунктир покажет, куда долетит. Если вести не прямо, а <b>дугой</b> — битка закрутится и скорее ляжет другим цветом.</p>
+  <p><b>Потяни битку назад и отпусти</b> — как рогатку. Пунктир покажет, куда долетит. </p>
+  <p><b>Закрутка:</b> прицелился и замер — закрутки нет, цвет выпадет случайный. Хочешь закрутить — <b>уведи палец вбок прямо перед тем, как отпустить</b>. Подпись у битки всегда показывает, что получится.</p>
   <p>Сбил свою — забрал. Битка осталась лежать и <b>поменяла цвет</b> — теперь целься в новый. <b>Задел чужую — промах</b>: всё, что в руке, рассыпалось. А если рука была пуста — битка замирает на секунду.</p>
   <p>Три косточки — <b>в сейф</b>, оттуда уже не отобрать. Пока трёх нет — держишь в руке и рискуешь.</p>
   <p>Изредка битка встаёт <b>на ребро</b>. Тогда <b>свалка</b>: четыре секунды правил нет, хватай косточки пальцем, сколько успеешь.</p>
@@ -253,23 +254,28 @@ function flash(x,y,c){for(let i=0;i<10;i++)fx.push({x,y,vx:rnd(-120,120),vy:rnd(
 function flashBig(){for(let i=0;i<24;i++)fx.push({x:W/2,y:TOP+30,vx:rnd(-200,200),vy:rnd(-60,160),l:rnd(.5,.9),c:'#F3DC8C'});}
 
 // ---------- ввод ----------
-function pt(e){return{x:e.clientX,y:e.clientY};}
+function pt(e){return{x:e.clientX,y:e.clientY,t:(e.timeStamp||performance.now())};}
 const MAXPULL=()=>Math.min(W,H)*0.30;
 const VMAX=1200;
 // закрутка = 2·стрела/хорда по ВСЕМУ жесту (первая точка хранится отдельно), нормировано в ±1 при ~0.15
+// Закрутка = поперечное движение пальца за ПОСЛЕДНИЕ 110 мс перед отпусканием.
+// Окно по ВРЕМЕНИ, а не по числу точек — одинаково на 60 и 120 Гц.
+// Прицеливание больше не влияет: повёл и замер — закрутки нет, гарантированно.
+const SPIN_WIN=110, SPIN_FULL=26, SPIN_DEAD=0.15;
 function calcSpin(){
-  if(!drag||drag.pts.length<3)return 0;
-  const a=drag.first, z=drag.pts[drag.pts.length-1];
-  const chord=Math.hypot(z.x-a.x,z.y-a.y); if(chord<12)return 0;
-  // максимальное знаковое отклонение точек от хорды
-  // СРЕДНЕЕ отклонение от хорды, а не максимальное: одна дёрнувшаяся точка больше не решает всё.
-  // Замер: прямой свайп с дрожанием ±5px давал закрутку 0.59 (иногда 1.0), теперь 0.045.
-  let sum=0;
-  for(const m of drag.pts){ sum+=((m.x-a.x)*(z.y-a.y)-(m.y-a.y)*(z.x-a.x))/chord; }
-  const v=Math.max(-1,Math.min(1,(3*(sum/drag.pts.length)/chord)/0.30));
-  const DEAD=0.18;                       // мёртвая зона под дрожание пальца
-  if(Math.abs(v)<DEAD) return 0;
-  return (Math.abs(v)-DEAD)/(1-DEAD)*(v>0?1:-1);
+  if(!drag||drag.pts.length<2)return 0;
+  const pts=drag.pts, last=pts[pts.length-1];
+  let i=pts.length-1;
+  while(i>0 && last.t-pts[i-1].t<=SPIN_WIN) i--;
+  const a=pts[i], z=last;
+  const mx=z.x-a.x, my=z.y-a.y;
+  if(Math.hypot(mx,my)<3) return 0;               // палец стоит — закрутки нет
+  const ax=drag.x0-z.x, ay=drag.y0-z.y, al=Math.hypot(ax,ay);
+  if(al<12) return 0;
+  const perp=(mx*(ay/al) - my*(ax/al));           // поперёк оси оттяжки, со знаком
+  const v=Math.max(-1,Math.min(1,perp/SPIN_FULL));
+  if(Math.abs(v)<SPIN_DEAD) return 0;
+  return (Math.abs(v)-SPIN_DEAD)/(1-SPIN_DEAD)*(v>0?1:-1);
 }
 cv.addEventListener('pointerdown',e=>{
   if(!e.isPrimary)return;
@@ -284,7 +290,7 @@ cv.addEventListener('pointerdown',e=>{
   if(saka.moving||sakaFreeze>0)return;
   if(Math.hypot(p.x-saka.x,p.y-saka.y)<saka.r*2.6){ drag={x0:p.x,y0:p.y,first:p,pts:[p],id:e.pointerId}; try{cv.setPointerCapture(e.pointerId);}catch(_){} }
 });
-cv.addEventListener('pointermove',e=>{ if(drag&&e.pointerId===drag.id){ drag.pts.push(pt(e)); if(drag.pts.length>240)drag.pts.splice(1,1); spinShow=calcSpin(); } });
+cv.addEventListener('pointermove',e=>{ if(drag&&e.pointerId===drag.id){ drag.pts.push(pt(e)); if(drag.pts.length>240)drag.pts.splice(1,1); } });
 cv.addEventListener('pointerup',e=>{
   if(!drag||e.pointerId!==drag.id)return;
   const p=pt(e);
@@ -455,6 +461,12 @@ function loop(t){
   if(sakaFreeze>0)sakaFreeze-=dt;
   if(landPop>0)landPop-=dt;
   for(const b of bones){ if(b.rolled>0)b.rolled-=dt; if(b.bad>0)b.bad-=dt*1.5; }
+  if(drag){ // палец мог остановиться — дописываем точку, иначе окно застынет на старом движении
+    const l=drag.pts[drag.pts.length-1];
+    drag.pts.push({x:l.x,y:l.y,t:l.t+dt*1000});
+    if(drag.pts.length>240)drag.pts.splice(1,1);
+    spinShow=calcSpin();
+  } else spinShow=0;
   if(bigT>0)bigT-=dt;
   if(msgT>0){ msgT-=dt; if(msgT<=0&&msgQ.length){ msg=msgQ.shift(); msgT=1.8; } }
   if(shake>0){shake-=dt*30;ctx.setTransform(DPR,0,0,DPR,rnd(-shake,shake),rnd(-shake,shake));}else ctx.setTransform(DPR,0,0,DPR,0,0);
