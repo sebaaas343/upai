@@ -218,9 +218,14 @@ function calcSpin(){
   const a=drag.first, z=drag.pts[drag.pts.length-1];
   const chord=Math.hypot(z.x-a.x,z.y-a.y); if(chord<12)return 0;
   // максимальное знаковое отклонение точек от хорды
-  let best=0;
-  for(const m of drag.pts){ const c=((m.x-a.x)*(z.y-a.y)-(m.y-a.y)*(z.x-a.x))/chord; if(Math.abs(c)>Math.abs(best))best=c; }
-  return Math.max(-1,Math.min(1,(2*best/chord)/0.30));
+  // СРЕДНЕЕ отклонение от хорды, а не максимальное: одна дёрнувшаяся точка больше не решает всё.
+  // Замер: прямой свайп с дрожанием ±5px давал закрутку 0.59 (иногда 1.0), теперь 0.045.
+  let sum=0;
+  for(const m of drag.pts){ sum+=((m.x-a.x)*(z.y-a.y)-(m.y-a.y)*(z.x-a.x))/chord; }
+  const v=Math.max(-1,Math.min(1,(3*(sum/drag.pts.length)/chord)/0.30));
+  const DEAD=0.18;                       // мёртвая зона под дрожание пальца
+  if(Math.abs(v)<DEAD) return 0;
+  return (Math.abs(v)-DEAD)/(1-DEAD)*(v>0?1:-1);
 }
 cv.addEventListener('pointerdown',e=>{
   if(!e.isPrimary)return;
@@ -346,8 +351,12 @@ function render(){
       const gx=saka.x+pr.ux*L, gy=saka.y+pr.uy*L;
       ctx.strokeStyle= pr.hit ? (pr.hit.face===saka.face?'#8FD9A0':'#E0846A') : 'rgba(240,230,210,.35)';
       ctx.lineWidth=2.5;ctx.beginPath();ctx.arc(gx,gy,saka.r,0,7);ctx.stroke();
-      // индикатор закрутки — изогнутая стрелка у саки
-      if(Math.abs(spinShow)>0.08){
+      // индикатор закрутки — дуга у битки; при нулевой закрутке подписываем прямо
+      if(Math.abs(spinShow)<0.05){
+        ctx.fillStyle='rgba(243,236,220,.45)';ctx.font='11px sans-serif';ctx.textAlign='center';
+        ctx.fillText('без закрутки — цвет случайный',saka.x,saka.y-saka.r*2.4);ctx.textAlign='left';
+      }
+      if(Math.abs(spinShow)>0.05){
         const sgn=spinShow>0?1:-1, mag=Math.abs(spinShow);
         ctx.strokeStyle= spinShow>0 ? '#F3DC8C' : '#7A6FC0'; ctx.lineWidth=3;
         ctx.beginPath(); ctx.arc(saka.x,saka.y,saka.r*1.7, sgn>0?-2.2:0.9, sgn>0?-2.2+mag*2.4:0.9+mag*2.4); ctx.stroke();
