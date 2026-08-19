@@ -19,6 +19,9 @@
   #ov .warn{border-left:2px solid #B4553C;padding-left:12px;color:#C49A88}
   #ov button{margin-top:20px;padding:12px 22px;border-radius:6px;border:1px solid #4A3A2A;background:#2A2018;color:#E8DCC4;font-size:15px;cursor:pointer}
   .sw{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-1px;margin-right:4px}
+  .dbtn{margin:0 6px 6px 0;padding:9px 16px;border-radius:6px;border:1px solid #4A3A2A;background:#2A2018;color:#BFB29A;font-size:14px;cursor:pointer}
+  .dbtn.on{border-color:#F3DC8C;color:#F3DC8C;background:#3A2C18}
+  #dinfo{font-size:13px;color:#8E8371}
 </style>
 </head>
 <body>
@@ -37,33 +40,56 @@
   <p>Изредка битка встаёт <b>на ребро</b>. Тогда <b>свалка</b>: четыре секунды правил нет, хватай косточки пальцем, сколько успеешь.</p>
 
   <h3>Цель</h3>
-  <p>Собрать как можно больше за 75 секунд.</p>
+  <p>Собрать как можно больше. <b>Три промаха — конец.</b></p>
+  <p>Бросок, который никого не задел, — это <b>переброс</b>, их ограниченное число на волну. Кончились перебросы — холостой бросок тоже стоит жизни.</p>
+  <p>Каждая волна раскладка цветов становится перекошеннее: редких косточек всё меньше, и лечь редким цветом всё опаснее. Тут и нужна закрутка — ложись в тот цвет, которого на ковре много.</p>
 
   <div class="warn">
     <h3>Честно</h3>
     <p>В основе — кыргызско-казахская игра в альчики (бараньи косточки). Правило «бить только свой цвет», промах за касание чужой и «рука до трёх» взяты из этнографических источников. Реальное время, таймер и потеря руки при промахе — уже наша адаптация: оригинал пошаговый и идёт часами.</p>
   </div>
+  <h3>Сложность</h3>
+  <p id="dsel">
+    <button class="dbtn" data-d="0">спокойно</button>
+    <button class="dbtn" data-d="1">обычно</button>
+    <button class="dbtn" data-d="2">жёстко</button>
+  </p>
+  <p id="dinfo"></p>
   <button id="go">Играть</button>
 </div></div>
 
 <script>
 'use strict';
 const cv=document.getElementById('c'), ctx=cv.getContext('2d');
-let W=0,H=0,DPR=1,SAT=0,SAB=0,TOP=40,BOT=8;
+let W=0,H=0,DPR=1,SAT=0,SAB=0,TOP=56,BOT=8;
 function resize(){DPR=Math.min(2,devicePixelRatio||1);W=innerWidth;H=innerHeight;cv.width=W*DPR;cv.height=H*DPR;ctx.setTransform(DPR,0,0,DPR,0,0);
-  const cs=getComputedStyle(document.documentElement);SAT=parseFloat(cs.getPropertyValue('--sat'))||0;SAB=parseFloat(cs.getPropertyValue('--sab'))||0;TOP=40+SAT;BOT=8+SAB;}
+  const cs=getComputedStyle(document.documentElement);SAT=parseFloat(cs.getPropertyValue('--sat'))||0;SAB=parseFloat(cs.getPropertyValue('--sab'))||0;TOP=56+SAT;BOT=8+SAB;}
 addEventListener('resize',resize);resize();
 
 // ---------- грани ----------
 const FACES=['ЖЁЛТАЯ','БИРЮЗОВАЯ','КРАСНАЯ','ФИОЛЕТОВАЯ'];
 const FCOL=['#F3DC8C','#5FB8B0','#B24A30','#7A6FC0'];
 const FDARK=['#9A7A2A','#2C6A64','#6A2A18','#433A7A'];
-// базовые вероятности поз без закрутки: чик/бөк (плоские) устойчивее, алчы/таа реже
-const BASEP=[0.20,0.22,0.30,0.28];
+// раскладка цветов на ковре. Чем дальше волна — тем сильнее перекос,
+// тем реже редкие цвета и тем чаще «цели нет». Это и есть нарастание сложности.
+const P_EVEN=[0.25,0.25,0.25,0.25];
+const P_MAX =[0.05,0.11,0.34,0.50];
+let BASEP=P_EVEN.slice();
+function setSkew(k){                      // k: 0 = ровно, 1 = предельный перекос
+  k=Math.max(0,Math.min(1,k));
+  BASEP=P_EVEN.map((v,i)=>v+(P_MAX[i]-v)*k);
+}
+const DIFFS=[
+  {n:'спокойно', lives:5, rr:4, skew0:0.00, skewStep:0.10, hint:'полная'},
+  {n:'обычно',   lives:3, rr:3, skew0:0.15, skewStep:0.16, hint:'средняя'},
+  {n:'жёстко',   lives:2, rr:2, skew0:0.35, skewStep:0.22, hint:'нет'}
+];
+let diff=1, lives=3, wave=1, rr=3, waveNeed=8, waveGot=0;
+const D=()=>DIFFS[diff];
 
 // ---------- состояние ----------
 let bones=[], saka=null, held=[], banked=0, foul=0, score=0, best=+localStorage.getItem('upai_best')||0;
-let timeLeft=75, running=false, over=false, lastT=0, msg='', msgT=0, shake=0;
+let running=false, over=false, lastT=0, msg='', msgT=0, shake=0;
 let msgQ=[], bigMsg='', bigT=0, landPop=0, pendingFace=-1, spinShow=0, talamai=0, talTaken=0;
 let drag=null;     // {x0,y0,pts:[]}
 let fx=[];         // частицы/вспышки
@@ -98,7 +124,8 @@ function spawn(){
 }
 
 function start(){
-  held=[];banked=0;foul=0;score=0;timeLeft=75;running=true;over=false;msg='';fx=[];msgQ=[];bigMsg='';talamai=0;pendingFace=-1;
+  held=[];banked=0;foul=0;score=0;running=true;over=false;msg='';fx=[];msgQ=[];bigMsg='';talamai=0;pendingFace=-1;
+  lives=D().lives; rr=D().rr; wave=1; waveGot=0; waveNeed=8; setSkew(D().skew0);
   spawn();lastT=performance.now();
 }
 
@@ -162,19 +189,26 @@ function resolveShot(){
   const t=[...shotCtx.touched.keys()];
   const faceAt=b=>shotCtx.touched.get(b);           // грань на момент касания
   const strangers=t.filter(b=>faceAt(b)!==shotCtx.sakaFace);
-  if(t.length===0){ say('мимо'); }
+  if(t.length===0){
+    // бросок вхолостую = переброс. Кончились — стоит жизни.
+    if(rr>0){ rr--; say('переброс · осталось '+rr); }
+    else { lives--; shake=6; say('впустую — минус жизнь'); }
+  }
   else if(strangers.length>0){
-    foul++; shake=8;
-    if(held.length){ say('ПРОМАХ — рука сгорела ('+held.length+')'); held=[]; }
-    else { say('ПРОМАХ'); sakaFreeze=1.2; }   // пустая рука — фол не бесплатен: заморозка
+    foul++; shake=10; lives--;
+    if(held.length){ say('ПРОМАХ — минус жизнь, рука сгорела ('+held.length+')'); held=[]; }
+    else { say('ПРОМАХ — минус жизнь'); }
   } else {
     for(const b of t){ b.alive=false; held.push(faceAt(b)); flash(b.x,b.y,FCOL[faceAt(b)]); }
     popAt(saka.x,saka.y-30,'+'+t.length,'#F0E6D2');
+    waveGot+=t.length;
     while(held.length>=3){ held.splice(0,3); banked++; score+=3; big('В СЕЙФ!'); flashBig(); }
+    if(waveGot>=waveNeed) nextWave();
     // капельный долив: после каждого чистого удара на поле снова ~14
     spawnMore(t.length);
   }
-  // сака ложится новой гранью — pop и подпись
+  if(lives<=0){ endGame(); return; }
+  // битка ложится новым цветом — pop и подпись
   saka.face=pendingFace; pendingFace=-1; landPop=0.35;
   if(saka.face===4){ startTalamai(); }
   else {
@@ -194,7 +228,17 @@ function spawnMore(n){
     if([saka,...bones.filter(o=>o.alive)].some(o=>Math.hypot(o.x-b.x,o.y-b.y)<R*2.1))continue;
     bones.push(b);added++;}
 }
-// ---- таламай: сака встала на ребро — свалка, хватай руками ----
+function nextWave(){
+  wave++; waveGot=0; rr=D().rr;
+  setSkew(D().skew0 + D().skewStep*(wave-1));
+  big('ВОЛНА '+wave);
+  say('перебросы восстановлены · редких цветов стало меньше');
+}
+function endGame(){
+  over=true; running=false; score+=held.length;
+  best=Math.max(best,score); localStorage.setItem('upai_best',best);
+}
+// ---- свалка: битка встала на ребро, хватай руками ----
 function startTalamai(){
   talamai=4; talTaken=0; big('СВАЛКА! хватай');
   for(const b of bones) if(b.alive){ b.vx+=rnd(-220,220); b.vy+=rnd(-220,220); }
@@ -319,19 +363,25 @@ function render(){
   for(let i=0;i<W;i+=37){ctx.fillStyle='rgba(0,0,0,.05)';ctx.fillRect(i,TOP,1,H);}
   // шапка
   ctx.fillStyle='#1A1410';ctx.fillRect(0,0,W,TOP);
-  const hy=SAT+20;
+  const hy=SAT+16;
   ctx.fillStyle='#F3DC8C';ctx.font='600 15px sans-serif';ctx.textBaseline='middle';
   ctx.fillText('КОСТОЧКИ',14,hy);
   ctx.fillStyle='#BFB29A';ctx.font='13px sans-serif';
   ctx.fillText('сейф '+banked+' · в руке',74,hy);
   let hx=74+ctx.measureText('сейф '+banked+' · в руке ').width+4;
   for(let i=0;i<3;i++){ ctx.beginPath();ctx.arc(hx+i*15,hy,5.5,0,7); if(i<held.length){ctx.fillStyle=FCOL[held[i]];ctx.fill();} else {ctx.strokeStyle='#5A4E3C';ctx.lineWidth=1.5;ctx.stroke();} }
-  ctx.textAlign='right';ctx.fillStyle=timeLeft<10?'#E0846A':'#E8DCC4';ctx.font='600 16px sans-serif';
-  ctx.fillText(Math.ceil(timeLeft)+'с',W-14,hy);ctx.textAlign='left';
+  // жизни справа
+  ctx.textAlign='right';
+  let lx=W-14;
+  for(let i=0;i<Math.max(lives,0);i++){ ctx.fillStyle='#E0846A';ctx.beginPath();ctx.arc(lx-i*17,hy,6,0,7);ctx.fill(); }
+  ctx.textAlign='left';
+  // волна и перебросы — вторая строка шапки
+  ctx.fillStyle='#8E8371';ctx.font='11px sans-serif';
+  ctx.fillText('волна '+wave+' · до следующей '+Math.max(0,waveNeed-waveGot)+' · перебросов '+rr,14,hy+16);
 
   // подсветка: валидные — по грани саки (или по грани выстрела в полёте), невалидные — приглушены
   const refFace = saka.moving&&shotCtx ? shotCtx.sakaFace : saka.face;
-  const showHint = running&&!over&&talamai<=0&&refFace<4;
+  const showHint = running&&!over&&talamai<=0&&refFace<4&&D().hint!=='нет';
   for(const b of bones){ if(!b.alive)continue; const v=showHint&&b.face===refFace; drawBone(b, v, false, showHint&&!v&&!saka.moving); }
   if(saka) drawBone(saka,false,true,false);
 
@@ -347,10 +397,14 @@ function render(){
       ctx.beginPath();ctx.moveTo(saka.x,saka.y);ctx.lineTo(saka.x+pr.ux*L,saka.y+pr.uy*L);ctx.stroke();
       if(pr.dist>L+10){ ctx.strokeStyle='rgba(240,230,210,.18)'; ctx.beginPath();ctx.moveTo(saka.x+pr.ux*L,saka.y+pr.uy*L);ctx.lineTo(saka.x+pr.ux*pr.dist,saka.y+pr.uy*pr.dist);ctx.stroke(); }
       ctx.setLineDash([]);
-      // призрак в точке контакта: цвет говорит, своя грань или чужая
+      // призрак: на «спокойно» цветной (говорит, свой или чужой), на «обычно» нейтральный, на «жёстко» его нет
       const gx=saka.x+pr.ux*L, gy=saka.y+pr.uy*L;
-      ctx.strokeStyle= pr.hit ? (pr.hit.face===saka.face?'#8FD9A0':'#E0846A') : 'rgba(240,230,210,.35)';
-      ctx.lineWidth=2.5;ctx.beginPath();ctx.arc(gx,gy,saka.r,0,7);ctx.stroke();
+      if(D().hint!=='нет'){
+        ctx.strokeStyle = D().hint==='полная'
+          ? (pr.hit ? (pr.hit.face===saka.face?'#8FD9A0':'#E0846A') : 'rgba(240,230,210,.35)')
+          : 'rgba(240,230,210,.4)';
+        ctx.lineWidth=2.5;ctx.beginPath();ctx.arc(gx,gy,saka.r,0,7);ctx.stroke();
+      }
       // индикатор закрутки — дуга у битки; при нулевой закрутке подписываем прямо
       if(Math.abs(spinShow)<0.05){
         ctx.fillStyle='rgba(243,236,220,.45)';ctx.font='11px sans-serif';ctx.textAlign='center';
@@ -382,7 +436,7 @@ function render(){
     ctx.fillStyle='rgba(14,10,8,.82)';ctx.fillRect(0,0,W,H);
     ctx.textAlign='center';ctx.fillStyle='#E3B85A';ctx.font='600 30px sans-serif';ctx.fillText(score+' очков',W/2,H*0.4);
     ctx.fillStyle='#BFB29A';ctx.font='15px sans-serif';
-    ctx.fillText('в сейфе '+banked+' · промахов '+foul+' · рекорд '+best,W/2,H*0.4+34);
+    ctx.fillText('волна '+wave+' · в сейфе '+banked+' · промахов '+foul+' · рекорд '+best,W/2,H*0.4+34);
     ctx.fillText('нажми, чтобы сыграть ещё',W/2,H*0.4+70);ctx.textAlign='left';
   }
 }
@@ -391,14 +445,12 @@ function loop(t){
   const dt=Math.min(0.033,(t-lastT)/1000);lastT=t;
   if(running&&!over){
     if(talamai>0){ talamai-=dt; if(talamai<=0){ talamai=0; say('свалка кончилась'); saka.face=pickFace(0); } }
-    else timeLeft-=dt;
     if(talamai<=0&&!saka.moving&&bones.filter(b=>b.alive).length<10) spawnMore(2);   // долив и после таламая
     step(dt);
     if(saka.moving){
       // резолв по остановке САКИ; кости могут докатываться
       if(saka.vx===0&&saka.vy===0){saka.moving=false;saka.landed=true;resolveShot();}
     }
-    if(timeLeft<=0){ over=true; running=false; score+=held.length; best=Math.max(best,score); localStorage.setItem('upai_best',best); }
   }
   if(sakaFreeze>0)sakaFreeze-=dt;
   if(landPop>0)landPop-=dt;
@@ -412,10 +464,19 @@ function loop(t){
   requestAnimationFrame(loop);
 }
 
+function paintDiff(){
+  document.querySelectorAll('.dbtn').forEach(b=>b.classList.toggle('on',+b.dataset.d===diff));
+  const d=DIFFS[diff];
+  document.getElementById('dinfo').textContent =
+    d.lives+' жизни · '+d.rr+' переброса на волну · подсказки: '+
+    (d.hint==='полная'?'видно, во что упрёшься':d.hint==='средняя'?'видно куда долетишь, но не во что':'только длина броска');
+}
+document.querySelectorAll('.dbtn').forEach(b=>b.onclick=()=>{diff=+b.dataset.d;paintDiff();});
+paintDiff();
 document.getElementById('go').onclick=()=>{document.getElementById('ov').classList.remove('on');start();};
 document.getElementById('ov').classList.add('on');
 spawn();
-window.__t={get:()=>({bones,saka,held,banked,foul,score,timeLeft,running,over,talamai}),pickFace,sakaFace,calcSpin,predictShot,start,step,resolveShot,FACES};
+window.__t={get:()=>({bones,saka,held,banked,foul,score,lives,wave,rr,waveGot,waveNeed,diff,BASEP,running,over,talamai}),pickFace,sakaFace,calcSpin,predictShot,setSkew,nextWave,start,step,resolveShot,DIFFS,FACES};
 requestAnimationFrame(loop);
 </script>
 </body>
