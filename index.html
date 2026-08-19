@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-<title>УПАЙ</title>
+<title>КОСТОЧКИ НА КОВРЕ</title>
 <style>
   :root{--sat:env(safe-area-inset-top,0px);--sab:env(safe-area-inset-bottom,0px)}
   html,body{margin:0;height:100%;background:#1a1410;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
@@ -25,23 +25,23 @@
 <canvas id="c"></canvas>
 
 <div id="ov"><div class="box">
-  <h2>УПАЙ</h2>
-  <p>Кыргызско-казахская игра в альчики. На войлоке рассыпаны бараньи косточки, каждая лежит на одной из четырёх граней:</p>
-  <p><span class="sw" style="background:#F3DC8C"></span><b>алчы</b> · <span class="sw" style="background:#5FB8B0"></span><b>таа</b> · <span class="sw" style="background:#B24A30"></span><b>чик</b> · <span class="sw" style="background:#7A6FC0"></span><b>бөк</b></p>
+  <h2>КОСТОЧКИ НА КОВРЕ</h2>
+  <p>На ковре рассыпаны косточки. Каждая упала на один из четырёх боков — и от этого зависит её цвет:</p>
+  <p><span class="sw" style="background:#F3DC8C"></span>жёлтая · <span class="sw" style="background:#5FB8B0"></span>бирюзовая · <span class="sw" style="background:#B24A30"></span>красная · <span class="sw" style="background:#7A6FC0"></span>фиолетовая</p>
 
   <h3>Как играть</h3>
-  <p>Внизу — твоя <b>сака</b>, биток. Она тоже лежит на какой-то грани. <b>Бить можно только по косточке той же грани, что и сака.</b> Подходящие цели подсвечены.</p>
-  <p><b>Потяни от саки и отпусти</b> — она полетит. Направление — куда бьёшь, длина — сила, а если провести дугой — сака закрутится, и это меняет, какой гранью она ляжет.</p>
-  <p>Сбил цель, не задев других — забрал её. Сака осталась лежать, и её новая грань решает, кого бьёшь дальше. <b>Задел постороннюю — фол</b>: рука сгорает, а если рука пуста — сака замирает на секунду.</p>
-  <p>Три кости — <b>басым</b>, они в сейфе. Пока трёх нет — держишь в руке и рискуешь.</p>
-  <p>Редко сака встаёт <b>на ребро</b> — это айкүр. Тогда <b>таламай</b>: четыре секунды свалки, хватай кости пальцем, сколько успеешь.</p>
+  <p>Внизу — твоя <b>битка</b>. Она тоже какого-то цвета. <b>Бить можно только по косточкам своего цвета.</b> Они светятся, остальные приглушены.</p>
+  <p><b>Потяни битку назад и отпусти</b> — как рогатку. Пунктир покажет, куда долетит. Если вести не прямо, а <b>дугой</b> — битка закрутится и скорее ляжет другим цветом.</p>
+  <p>Сбил свою — забрал. Битка осталась лежать и <b>поменяла цвет</b> — теперь целься в новый. <b>Задел чужую — промах</b>: всё, что в руке, рассыпалось. А если рука была пуста — битка замирает на секунду.</p>
+  <p>Три косточки — <b>в сейф</b>, оттуда уже не отобрать. Пока трёх нет — держишь в руке и рискуешь.</p>
+  <p>Изредка битка встаёт <b>на ребро</b>. Тогда <b>свалка</b>: четыре секунды правил нет, хватай косточки пальцем, сколько успеешь.</p>
 
   <h3>Цель</h3>
-  <p>Собрать как можно больше за 75 секунд. Упай — значит очко.</p>
+  <p>Собрать как можно больше за 75 секунд.</p>
 
   <div class="warn">
     <h3>Честно</h3>
-    <p>Правило «одноимённой парой», фол за касание чужой кости и «рука до басыма» — из кыргызских и казахских источников (Рысмендеева 2016, официальный рулбук 2011). А вот реальное время, таймер и потеря руки при фоле — моя адаптация: оригинал пошаговый и часовой.</p>
+    <p>В основе — кыргызско-казахская игра в альчики (бараньи косточки). Правило «бить только свой цвет», промах за касание чужой и «рука до трёх» взяты из этнографических источников. Реальное время, таймер и потеря руки при промахе — уже наша адаптация: оригинал пошаговый и идёт часами.</p>
   </div>
   <button id="go">Играть</button>
 </div></div>
@@ -55,7 +55,7 @@ function resize(){DPR=Math.min(2,devicePixelRatio||1);W=innerWidth;H=innerHeight
 addEventListener('resize',resize);resize();
 
 // ---------- грани ----------
-const FACES=['алчы','таа','чик','бөк'];
+const FACES=['ЖЁЛТАЯ','БИРЮЗОВАЯ','КРАСНАЯ','ФИОЛЕТОВАЯ'];
 const FCOL=['#F3DC8C','#5FB8B0','#B24A30','#7A6FC0'];
 const FDARK=['#9A7A2A','#2C6A64','#6A2A18','#433A7A'];
 // базовые вероятности поз без закрутки: чик/бөк (плоские) устойчивее, алчы/таа реже
@@ -150,7 +150,7 @@ function onHit(a,b,v){
   if(shotCtx&&!shotCtx.resolved&&other&&!shotCtx.touched.has(other)){
     shotCtx.touched.set(other, other.face);
     if(other.face===shotCtx.sakaFace){ ring(other.x,other.y,FCOL[other.face]); }
-    else if(!shotCtx.firstBad){ shotCtx.firstBad=other; other.bad=0.8; flash(other.x,other.y,'#E0846A'); popAt(other.x,other.y-26,'чужая: '+FACES[other.face],'#E0846A'); }
+    else if(!shotCtx.firstBad){ shotCtx.firstBad=other; other.bad=0.8; flash(other.x,other.y,'#E0846A'); popAt(other.x,other.y-26,'чужая!','#E0846A'); }
   }
   // сбитая кость перекатывается — поле живёт (после судейства)
   if(v>260){ const t=other||a; if(t!==saka){ t.face=pickFace(0); t.rolled=0.35; } }
@@ -165,12 +165,12 @@ function resolveShot(){
   if(t.length===0){ say('мимо'); }
   else if(strangers.length>0){
     foul++; shake=8;
-    if(held.length){ say('ФОЛ — рука сгорела ('+held.length+')'); held=[]; }
-    else { say('ФОЛ'); sakaFreeze=1.2; }   // пустая рука — фол не бесплатен: заморозка
+    if(held.length){ say('ПРОМАХ — рука сгорела ('+held.length+')'); held=[]; }
+    else { say('ПРОМАХ'); sakaFreeze=1.2; }   // пустая рука — фол не бесплатен: заморозка
   } else {
     for(const b of t){ b.alive=false; held.push(faceAt(b)); flash(b.x,b.y,FCOL[faceAt(b)]); }
     popAt(saka.x,saka.y-30,'+'+t.length,'#F0E6D2');
-    while(held.length>=3){ held.splice(0,3); banked++; score+=3; big('БАСЫМ!'); flashBig(); }
+    while(held.length>=3){ held.splice(0,3); banked++; score+=3; big('В СЕЙФ!'); flashBig(); }
     // капельный долив: после каждого чистого удара на поле снова ~14
     spawnMore(t.length);
   }
@@ -178,9 +178,9 @@ function resolveShot(){
   saka.face=pendingFace; pendingFace=-1; landPop=0.35;
   if(saka.face===4){ startTalamai(); }
   else {
-    popAt(saka.x,saka.y+saka.r+18,'сака → '+FACES[saka.face],FCOL[saka.face]);
+    popAt(saka.x,saka.y+saka.r+18,'битка → '+FACES[saka.face],FCOL[saka.face]);
     // если пары нет — подсказать и разрешить перебросить
-    if(!bones.some(b=>b.alive&&b.face===saka.face)) say('нет пары — перебрось саку');
+    if(!bones.some(b=>b.alive&&b.face===saka.face)) say('нет такого цвета — перебрось битку');
   }
 }
 function spawnMore(n){
@@ -196,7 +196,7 @@ function spawnMore(n){
 }
 // ---- таламай: сака встала на ребро — свалка, хватай руками ----
 function startTalamai(){
-  talamai=4; talTaken=0; big('ТАЛАМАЙ! хватай');
+  talamai=4; talTaken=0; big('СВАЛКА! хватай');
   for(const b of bones) if(b.alive){ b.vx+=rnd(-220,220); b.vy+=rnd(-220,220); }
 }
 let sakaFreeze=0;
@@ -229,7 +229,7 @@ cv.addEventListener('pointerdown',e=>{
   const p=pt(e);
   if(talamai>0){ // свалка: хватаем кости тапом
     for(const b of bones){ if(b.alive&&Math.hypot(b.x-p.x,b.y-p.y)<b.r*2.2){ b.alive=false; held.push(b.face); talTaken++; flash(b.x,b.y,FCOL[b.face]);
-      while(held.length>=3){held.splice(0,3);banked++;score+=3;big('БАСЫМ!');} break; } }
+      while(held.length>=3){held.splice(0,3);banked++;score+=3;big('В СЕЙФ!');} break; } }
     return;
   }
   if(saka.moving||sakaFreeze>0)return;
@@ -316,10 +316,10 @@ function render(){
   ctx.fillStyle='#1A1410';ctx.fillRect(0,0,W,TOP);
   const hy=SAT+20;
   ctx.fillStyle='#F3DC8C';ctx.font='600 15px sans-serif';ctx.textBaseline='middle';
-  ctx.fillText('УПАЙ',14,hy);
+  ctx.fillText('КОСТОЧКИ',14,hy);
   ctx.fillStyle='#BFB29A';ctx.font='13px sans-serif';
-  ctx.fillText('басым '+banked+' · в руке',74,hy);
-  let hx=74+ctx.measureText('басым '+banked+' · в руке ').width+4;
+  ctx.fillText('сейф '+banked+' · в руке',74,hy);
+  let hx=74+ctx.measureText('сейф '+banked+' · в руке ').width+4;
   for(let i=0;i<3;i++){ ctx.beginPath();ctx.arc(hx+i*15,hy,5.5,0,7); if(i<held.length){ctx.fillStyle=FCOL[held[i]];ctx.fill();} else {ctx.strokeStyle='#5A4E3C';ctx.lineWidth=1.5;ctx.stroke();} }
   ctx.textAlign='right';ctx.fillStyle=timeLeft<10?'#E0846A':'#E8DCC4';ctx.font='600 16px sans-serif';
   ctx.fillText(Math.ceil(timeLeft)+'с',W-14,hy);ctx.textAlign='left';
@@ -352,12 +352,12 @@ function render(){
         ctx.strokeStyle= spinShow>0 ? '#F3DC8C' : '#7A6FC0'; ctx.lineWidth=3;
         ctx.beginPath(); ctx.arc(saka.x,saka.y,saka.r*1.7, sgn>0?-2.2:0.9, sgn>0?-2.2+mag*2.4:0.9+mag*2.4); ctx.stroke();
         ctx.fillStyle=ctx.strokeStyle; ctx.font='11px sans-serif'; ctx.textAlign='center';
-        ctx.fillText(spinShow>0?'→ алчы/таа':'→ чик/бөк', saka.x, saka.y-saka.r*2.4); ctx.textAlign='left';
+        ctx.fillText(spinShow>0?'→ жёлтая/бирюзовая':'→ красная/фиолетовая', saka.x, saka.y-saka.r*2.4); ctx.textAlign='left';
       }
     }
   }
   if(talamai>0){ ctx.fillStyle='rgba(243,220,140,.12)';ctx.fillRect(0,TOP,W,H-TOP-BOT);
-    ctx.textAlign='center';ctx.fillStyle='#F3DC8C';ctx.font='600 15px sans-serif';ctx.fillText('ТАЛАМАЙ · '+talamai.toFixed(1)+'с · взято '+talTaken,W/2,TOP+24);ctx.textAlign='left'; }
+    ctx.textAlign='center';ctx.fillStyle='#F3DC8C';ctx.font='600 15px sans-serif';ctx.fillText('СВАЛКА · '+talamai.toFixed(1)+'с · взято '+talTaken,W/2,TOP+24);ctx.textAlign='left'; }
   if(sakaFreeze>0){ ctx.fillStyle='rgba(224,132,106,.25)';ctx.beginPath();ctx.arc(saka.x,saka.y,saka.r*1.6,0,7);ctx.fill(); }
   // частицы и всплывашки
   for(const f of fx){
@@ -371,9 +371,9 @@ function render(){
   if(bigT>0){ctx.textAlign='center';ctx.fillStyle='rgba(243,220,140,'+Math.min(1,bigT*2)+')';ctx.font='700 30px sans-serif';ctx.fillText(bigMsg,W/2,H*0.42);ctx.textAlign='left';}
   if(over){
     ctx.fillStyle='rgba(14,10,8,.82)';ctx.fillRect(0,0,W,H);
-    ctx.textAlign='center';ctx.fillStyle='#E3B85A';ctx.font='600 30px sans-serif';ctx.fillText(score+' упай',W/2,H*0.4);
+    ctx.textAlign='center';ctx.fillStyle='#E3B85A';ctx.font='600 30px sans-serif';ctx.fillText(score+' очков',W/2,H*0.4);
     ctx.fillStyle='#BFB29A';ctx.font='15px sans-serif';
-    ctx.fillText('басымов '+banked+' · фолов '+foul+' · рекорд '+best,W/2,H*0.4+34);
+    ctx.fillText('в сейфе '+banked+' · промахов '+foul+' · рекорд '+best,W/2,H*0.4+34);
     ctx.fillText('нажми, чтобы сыграть ещё',W/2,H*0.4+70);ctx.textAlign='left';
   }
 }
@@ -381,7 +381,7 @@ function render(){
 function loop(t){
   const dt=Math.min(0.033,(t-lastT)/1000);lastT=t;
   if(running&&!over){
-    if(talamai>0){ talamai-=dt; if(talamai<=0){ talamai=0; say('таламай кончился'); saka.face=pickFace(0); } }
+    if(talamai>0){ talamai-=dt; if(talamai<=0){ talamai=0; say('свалка кончилась'); saka.face=pickFace(0); } }
     else timeLeft-=dt;
     if(talamai<=0&&!saka.moving&&bones.filter(b=>b.alive).length<10) spawnMore(2);   // долив и после таламая
     step(dt);
