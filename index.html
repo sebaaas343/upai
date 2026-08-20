@@ -35,7 +35,7 @@
   <h3>Как играть</h3>
   <p>Внизу — твой <b>биток</b>. Он тоже какого-то цвета. <b>Бить можно только по косточкам своего цвета.</b> Они светятся, остальные приглушены.</p>
   <p><b>Потяни биток назад и отпусти</b> — как рогатку. Пунктир покажет, куда долетит. </p>
-  <p><b>Закрутка:</b> веди палец <b>дугой</b> — биток закрутится и ляжет цветом, который показывает подпись. Ведёшь прямо — закрутки нет, цвет случайный.</p>
+  <p><b>Закрутка:</b> как только оттянул, у битка появляется <b>пунктирный луч</b> — это направление, куда ты потянул первым движением, и это «ноль». Уводишь прицел <b>дугой</b> в сторону от луча — биток закручивается, подпись говорит, каким цветом он ляжет. Вернул прицел на луч — закрутка ушла. Одно и то же положение пальца всегда даёт одну и ту же закрутку: увёл и вернулся — цвет прежний.</p>
   <p>Сбил свою — забрал. Биток остался лежать и <b>поменял цвет</b> — теперь целься в новый. <b>Задел чужую — промах</b>: всё, что в руке, рассыпалось. А если рука была пуста — биток замирает на секунду.</p>
   <p>Каждая сбитая косточка — очко. Бьёшь подряд — растёт <b>серия</b> и множитель к очкам: второе попадание даёт ×2, третье ×3 и так далее. <b>Серию рвёт промах</b> (и стоит жизни) <b>и переброс</b> — бросок, не задевший никого.</p>
   <p><b>Десять попаданий подряд — свалка.</b> На пять секунд правило цвета снимается, и ты просто <b>тыкаешь пальцем в любые косточки</b>, сколько успеешь. Серию рвёт и промах, и переброс — так что свалку надо заслужить.</p>
@@ -264,28 +264,30 @@ function flashBig(){for(let i=0;i<24;i++)fx.push({x:W/2,y:TOP+30,vx:rnd(-200,200
 function pt(e){return{x:e.clientX,y:e.clientY,t:performance.now()};}
 const MAXPULL=()=>Math.min(W,H)*0.30;
 const VMAX=1200;
-// закрутка = 2·стрела/хорда по ВСЕМУ жесту (первая точка хранится отдельно), нормировано в ±1 при ~0.15
-// Закрутка = кривизна ВСЕГО жеста: ведёшь дугой — крутишь. Как было.
-// Среднее отклонение точек от хорды + мёртвая зона против дрожания пальца.
-let lastSpin=0;
-function calcSpin(){
-  if(!drag||drag.pts.length<3)return 0;
-  const a=drag.first, z=drag.pts[drag.pts.length-1];
-  const chord=Math.hypot(z.x-a.x,z.y-a.y); if(chord<12)return lastSpin;
-  // петля: хорда много короче пройденного пути (360 и вернулся) — формула взрывается.
-  // Держим прежнее значение: вернулся в ту же точку — цвет тот же.
-  let plen=0;
-  for(let i=1;i<drag.pts.length;i++) plen+=Math.hypot(drag.pts[i].x-drag.pts[i-1].x,drag.pts[i].y-drag.pts[i-1].y);
-  // Заморозка ТОЛЬКО для настоящей петли: палец вернулся почти в точку нажатия,
-  // намотав длинный путь. Прежнее условие (доля от общего пути) замораживало
-  // закрутку при любом долгом прицеливании — путь копился, порог рос.
-  if(chord < 40 && plen > 250) return lastSpin;
-  let sum=0;
-  for(const m of drag.pts){ sum+=((m.x-a.x)*(z.y-a.y)-(m.y-a.y)*(z.x-a.x))/chord; }
-  const v=Math.max(-1,Math.min(1,(3*(sum/drag.pts.length)/chord)/0.30));
-  const DEAD=0.18;
-  if(Math.abs(v)<DEAD) return lastSpin=0;
-  return lastSpin=(Math.abs(v)-DEAD)/(1-DEAD)*(v>0?1:-1);
+// ---- ЗАКРУТКА ----
+// Жест прежний: ведёшь дугой — крутишь. Но меряем не путь, а ПОЛОЖЕНИЕ.
+// Закрутка = на сколько прицел уведён от направления, куда потянул вначале.
+// Раньше это был интеграл по всем точкам жеста, и он зависел от истории:
+// вернул палец на прежнее место — цвет другой; а когда буфер точек переполнялся,
+// старые выпадали и цвет менялся сам, при неподвижном пальце.
+// Теперь функция только от текущей точки: то же положение — та же закрутка,
+// петля на 360° возвращает ровно то, что было.
+const SPIN_DEAD=0.33;    // ±19° — свободный конус: обычное доведение прицела закрутки не даёт
+const SPIN_FULL=1.25;    // ~72° увода — предельная закрутка
+const SPIN_ANCHOR=30;    // с этой длины оттяжки запоминаем «нулевое» направление
+function spinFrom(dx,dy){          // dx,dy — вектор прицела (куда полетит биток)
+  if(!drag||drag.a0===null)return 0;
+  let t=Math.atan2(dy,dx)-(drag.a0+Math.PI);
+  while(t>Math.PI)t-=2*Math.PI; while(t<-Math.PI)t+=2*Math.PI;
+  const m=Math.abs(t);
+  if(m<SPIN_DEAD)return 0;
+  return Math.min(1,(m-SPIN_DEAD)/(SPIN_FULL-SPIN_DEAD))*(t>0?1:-1);
+}
+function calcSpin(){               // по тому же сглаженному прицелу, что нарисован
+  if(!drag)return 0;
+  if(aimInit)return spinFrom(aimDX,aimDY);
+  const z=drag.pts[drag.pts.length-1];
+  return spinFrom(drag.x0-z.x,drag.y0-z.y);
 }
 cv.addEventListener('pointerdown',e=>{
   if(!e.isPrimary)return;
@@ -298,9 +300,13 @@ cv.addEventListener('pointerdown',e=>{
     return;
   }
   if(saka.moving||sakaFreeze>0)return;
-  if(Math.hypot(p.x-saka.x,p.y-saka.y)<saka.r*2.6){ lastSpin=0; drag={x0:p.x,y0:p.y,first:p,pts:[p],id:e.pointerId}; try{cv.setPointerCapture(e.pointerId);}catch(_){} }
+  if(Math.hypot(p.x-saka.x,p.y-saka.y)<saka.r*2.6){ drag={x0:p.x,y0:p.y,first:p,pts:[p],id:e.pointerId,a0:null}; try{cv.setPointerCapture(e.pointerId);}catch(_){} }
 });
-cv.addEventListener('pointermove',e=>{ if(drag&&e.pointerId===drag.id){ drag.pts.push(pt(e)); if(drag.pts.length>240)drag.pts.splice(1,1); spinShow=calcSpin(); } });
+cv.addEventListener('pointermove',e=>{ if(drag&&e.pointerId===drag.id){
+  const q=pt(e); drag.pts.push(q); if(drag.pts.length>8)drag.pts.shift();
+  if(drag.a0===null){ const c=Math.hypot(q.x-drag.first.x,q.y-drag.first.y);
+    if(c>=SPIN_ANCHOR) drag.a0=Math.atan2(q.y-drag.first.y,q.x-drag.first.x); }
+  spinShow=calcSpin(); } });
 cv.addEventListener('pointerup',e=>{
   if(!drag||e.pointerId!==drag.id)return;
   const p=pt(e);
@@ -492,17 +498,30 @@ function render(){
         ctx.strokeStyle='rgba(240,230,210,.35)';
         ctx.beginPath();ctx.arc(e.x,e.y,saka.r,0,7);ctx.stroke();
       }
-      // индикатор закрутки — дуга у битка; при нулевой закрутке подписываем прямо
-      if(Math.abs(spinShow)<0.05){
-        ctx.fillStyle='rgba(243,236,220,.45)';ctx.font='11px sans-serif';ctx.textAlign='center';
-        ctx.fillText('без закрутки — цвет случайный',saka.x,saka.y-saka.r*2.4);ctx.textAlign='left';
-      } else {
-        const sgn=spinShow>0?1:-1, mag=Math.min(1,Math.abs(spinShow));
-        ctx.strokeStyle= spinShow>0 ? '#F3DC8C' : '#7A6FC0'; ctx.lineWidth=3;
-        ctx.beginPath(); ctx.arc(saka.x,saka.y,saka.r*1.7, sgn>0?-2.2:0.9, sgn>0?-2.2+mag*2.4:0.9+mag*2.4); ctx.stroke();
-        ctx.fillStyle=ctx.strokeStyle; ctx.font='11px sans-serif'; ctx.textAlign='center';
-        ctx.fillText(spinShow>0?'→ жёлтая/бирюзовая':'→ красная/фиолетовая', saka.x, saka.y-saka.r*2.4); ctx.textAlign='left';
+      // индикатор закрутки: пунктирный луч — куда потянул вначале (это ноль),
+      // дуга от луча до текущего прицела — насколько увёл. Схлопнул дугу — закрутки нет.
+      spinShow=spinFrom(dx,dy);
+      if(drag.a0!==null){
+        const zero=drag.a0+Math.PI, cur=Math.atan2(dy,dx), RR=saka.r*2.0;
+        let sw=cur-zero; while(sw>Math.PI)sw-=2*Math.PI; while(sw<-Math.PI)sw+=2*Math.PI;
+        ctx.setLineDash([3,5]);ctx.lineWidth=1.5;ctx.strokeStyle='rgba(240,230,210,.3)';
+        ctx.beginPath();ctx.moveTo(saka.x,saka.y);
+        ctx.lineTo(saka.x+Math.cos(zero)*RR*1.6,saka.y+Math.sin(zero)*RR*1.6);ctx.stroke();
+        ctx.setLineDash([]);
+        if(Math.abs(sw)>0.05){
+          ctx.strokeStyle = spinShow===0 ? 'rgba(240,230,210,.35)' : (spinShow>0?'#F3DC8C':'#7A6FC0');
+          ctx.lineWidth=3;ctx.beginPath();ctx.arc(saka.x,saka.y,RR,zero,cur,sw<0);ctx.stroke();
+        }
       }
+      ctx.font='11px sans-serif';ctx.textAlign='center';
+      if(spinShow===0){
+        ctx.fillStyle='rgba(243,236,220,.45)';
+        ctx.fillText('без закрутки — цвет случайный',saka.x,saka.y-saka.r*2.9);
+      } else {
+        ctx.fillStyle= spinShow>0?'#F3DC8C':'#7A6FC0';
+        ctx.fillText(spinShow>0?'→ жёлтая/бирюзовая':'→ красная/фиолетовая',saka.x,saka.y-saka.r*2.9);
+      }
+      ctx.textAlign='left';
     }
   }
   if(talamai>0){ ctx.fillStyle='rgba(243,220,140,.12)';ctx.fillRect(0,TOP,W,H-TOP-BOT);
