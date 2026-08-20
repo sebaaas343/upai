@@ -118,11 +118,11 @@ function spawn(){
   let tries=0;
   while(bones.length<n&&tries<800){
     tries++;
-    const b={x:rnd(W*0.12,W*0.88),y:rnd(TOP+H*0.08,H*0.58),r:R*0.78,face:pickFace(0),vx:0,vy:0,w:rnd(-0.3,0.3),a:rnd(0,6.28),alive:true,spin:0};
+    const b={x:rnd(W*0.12,W*0.88),y:rnd(TOP+H*0.06,H-BOT-H*0.10),r:R*0.78,face:pickFace(0),vx:0,vy:0,w:rnd(-0.3,0.3),a:rnd(0,6.28),alive:true,spin:0};
     if(bones.some(o=>Math.hypot(o.x-b.x,o.y-b.y)<R*2.1))continue;
     bones.push(b);
   }
-  saka={x:W/2,y:H*0.72,r:R*0.95,face:pickFace(0),vx:0,vy:0,w:0,a:0,alive:true,spin:0,moving:false,landed:true};
+  saka={x:W/2,y:H-BOT-R*2.4,r:R*0.95,face:pickFace(0),vx:0,vy:0,w:0,a:0,alive:true,spin:0,moving:false,landed:true};
 }
 
 function start(){
@@ -227,11 +227,12 @@ function spawnMore(n){
   const R=Math.min(W,H)*0.05; let added=0,tries=0;
   const want=Math.max(0,14-bones.filter(b=>b.alive).length);
   const need=Math.min(n||1,want);
-  while(added<need&&tries<400){tries++;
-    const x=rnd(W*0.15,W*0.85);
-    // вкатываются сверху с начальной скоростью — не материализуются на месте
-    const b={x,y:TOP+R,r:R*0.78,face:pickFace(0),vx:rnd(-60,60),vy:rnd(180,320),w:rnd(-2,2),a:rnd(0,6.28),alive:true,spin:0};
-    if([saka,...bones.filter(o=>o.alive)].some(o=>Math.hypot(o.x-b.x,o.y-b.y)<R*2.1))continue;
+  const FLOORY=H-BOT;
+  while(added<need&&tries<600){tries++;
+    // по всей площадке, как при старте: иначе поле уползает к верхнему краю
+    const x=rnd(W*0.12,W*0.88), y=rnd(TOP+H*0.06,FLOORY-H*0.10);
+    const b={x,y,r:R*0.78,face:pickFace(0),vx:0,vy:0,w:0,a:rnd(0,6.28),alive:true,spin:0,rolled:0.35};
+    if([saka,...bones.filter(o=>o.alive)].some(o=>Math.hypot(o.x-b.x,o.y-b.y)<R*2.3))continue;
     bones.push(b);added++;}
 }
 function nextWave(){
