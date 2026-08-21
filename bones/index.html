@@ -344,6 +344,7 @@ let rain=null;                     // пул капель (переисполь�
 let stars=null;                    // звёзды (строятся один раз на раскладку)
 let fgGrass=null;                  // трава переднего плана (пересобирается на раскладку)
 let lanternGrad=null;              // градиент фонарика: локальные координаты, создаётся один раз
+let deliverFlash=0, deliverSide=-1;// вспышка света у будки, куда только что сдали кость
 let milkyGrad=null, milkyH=0;      // кэш градиента млечного пути
 let shootT=5, shoot=null;          // таймер до падающей звезды и она сама
 let lastPaw=0;                     // на каком пути топнули в прошлый раз
@@ -612,7 +613,9 @@ function padRect(side){
 }
 
 function addP(p){ particles.push(p); if(particles.length>P_MAX) particles.splice(0,particles.length-P_MAX); }
-function addFloater(x,y,t,color,size){ floaters.push({x:x,y:y,txt:t,color:color,size:size,life:0.9,max:0.9}); }
+/* delay — надпись ждёт своей очереди. Без него три флотера доставки
+   спавнились в одну точку и ложились нечитаемой пирамидой. */
+function addFloater(x,y,t,color,size,delay){ floaters.push({x:x,y:y,txt:t,color:color,size:size,life:0.9,max:0.9,delay:delay||0}); }
 
 /* ---------- ввод: слушатели регистрируются РОВНО один раз ---------- */
 /* Тапы по интерфейсу (звук, старт, «ещё раз»). Направление сюда НЕ попадает —
@@ -959,15 +962,18 @@ function deliverBone(side){
   const cx=(side===-1)?kennelLX:kennelRX;
   const m=mouthPos();
   fxBones.push({mode:'arc',t:0,dur:0.30,x0:m.x,y0:m.y,x1:cx,y1:groundY-KH*0.72,rot:0,vr:14,side:side});
-  addFloater(cx,groundY-KH-30,'+'+pts,hot?'#ffd94d':'#f2ead8',hot?30:26);
-  if(hot) addFloater(cx,groundY-KH-64,T('yum')+Math.round(food),'#8fe06a',22);
+  /* Раньше тут спавнились ТРИ надписи в одну точку: «+40», «×4!» и «СЫТНО».
+     Они ложились друг на друга и на бейдж будки — не прочесть ни сумму, ни
+     множитель. Теперь очки и множитель одной строкой, еда — следом. */
+  addFloater(cx,groundY-KH-(hot?74:34), hot?('+'+pts+'  ×'+hm+'!'):('+'+pts), hot?'#ffd94d':'#f2ead8', hot?28:26);
+  if(hot) addFloater(cx,groundY-KH-108,T('yum')+Math.round(food),'#8fe06a',22,0.25);
+  deliverFlash=0.5; deliverSide=side;   // будка вспыхивает светом
   const n=hot?16:7;
   for(let i=0;i<n;i++) addP({kind:'coin',x:cx,y:groundY-KH*0.6,vx:rand(-140,140),vy:rand(-260,-50),g:520,life:rand(0.35,0.8),max:0.8,size:rand(2.2,4.5),color:(hot&&Math.random()<0.5)?'#ff9f2e':'#ffcf4d'});
   if(hot){
     hitStop=Math.max(hitStop,0.05); SFX.deliverHot();
     /* доставка в иксы — маленький праздник: конфетти над будкой и прыгающий множитель */
     shakeT=Math.max(shakeT,0.16); shakeAmp=Math.max(shakeAmp,3);
-    addFloater(cx,groundY-KH-58,'×'+hm+'!','#ffd94d',32);
     const CC=['#ffd94d','#ff8a3d','#8fe06a','#7fd8ff','#ff9ae0'];
     for(let i=0;i<24;i++) addP({kind:'spark',x:cx+rand(-KW*0.45,KW*0.45),y:groundY-KH*0.95,vx:rand(-150,150),vy:rand(-280,-90),g:430,life:rand(0.45,0.85),max:0.85,size:rand(2,4),color:CC[i%CC.length]});
   }
@@ -1179,6 +1185,7 @@ function updateFx(dt){
   }
   for(let i=floaters.length-1;i>=0;i--){
     const f=floaters[i];
+    if(f.delay>0){ f.delay-=dt; continue; }   // ещё не вышла: не живёт и не рисуется
     f.life-=dt; f.y-=46*dt;
     if(f.life<=0) floaters.splice(i,1);
   }
@@ -1233,6 +1240,7 @@ function frame(now){
   if(invEndT>0) invEndT-=gdt;
   if(shakeT>0) shakeT-=gdt;
   if(hungerFlash>0) hungerFlash-=gdt;
+  if(deliverFlash>0) deliverFlash-=gdt;
   if(overDelay>0) overDelay-=gdt;
   scorePunch=Math.max(0,scorePunch-rdt*3);
   hotPunch=Math.max(0,hotPunch-rdt*2.5);
@@ -1375,12 +1383,16 @@ function drawBone(x,y,rot,r,poison,kind,sly){
      тухлая — болотно-бурая с мухой, бьёт обычно;
      ядовитая — ярко-зелёная с фиолетовыми шишками и черепом, бьёт вдвое. */
   /* железная кость — металл вместо камня; волшебная — переливающаяся радуга */
-  const body=poison?(sly?'#8f9a3c':'#7ec832'):(magic?'#ffffff':(speed?'#ffd94d':(stone?'#a7adb8':'#f4ecd8')));
-  const lobe=poison?(sly?'#a6a558':'#a05fd0'):(magic?'#ffd9f4':(speed?'#ffe98a':(stone?'#8e95a2':'#f4ecd8')));
-  const line=poison?(sly?'#5d6524':'#3f7d1e'):(magic?'#c96fb4':(speed?'#c8931e':(stone?'#565c66':'#b8a988')));
+  /* Обводка обычной кости ТЁМНАЯ: кремовая кость пролетает по кремовому месяцу
+     и без неё просто исчезает — а месяц висит ровно там, где кости спавнятся.
+     Железная затемнена до холодной стали: раньше она была того же тона, что
+     съедобная, и её хватали по ошибке — это промах графики, а не игрока. */
+  const body=poison?(sly?'#8f9a3c':'#7ec832'):(magic?'#ffffff':(speed?'#ffd94d':(stone?'#8b93a0':'#f4ecd8')));
+  const lobe=poison?(sly?'#a6a558':'#a05fd0'):(magic?'#ffd9f4':(speed?'#ffe98a':(stone?'#767e8c':'#f4ecd8')));
+  const line=poison?(sly?'#5d6524':'#3f7d1e'):(magic?'#c96fb4':(speed?'#c8931e':(stone?'#3f4653':'#7a6848')));
   if(magic){ ctx.shadowColor='hsl('+Math.round((realTime*140)%360)+',95%,70%)'; ctx.shadowBlur=16; }
   if(speed){ ctx.shadowColor='#ffd94d'; ctx.shadowBlur=10; }
-  ctx.lineWidth=2; ctx.strokeStyle=line;
+  ctx.lineWidth=2.4; ctx.strokeStyle=line;
   ctx.fillStyle=body;
   rr(-r,-shaftW/2,2*r,shaftW,shaftW/2); ctx.fill(); ctx.stroke();
   ctx.fillStyle=lobe;
@@ -1431,11 +1443,14 @@ function drawBone(x,y,rot,r,poison,kind,sly){
     }
     ctx.closePath(); ctx.fill(); ctx.stroke();
   }
-  if(stone){ // ЖЕЛЕЗНАЯ: заклёпки и гравировка веса, всегда горизонтально
+  if(stone){ // ЖЕЛЕЗНАЯ: блик, заклёпки и гравировка веса
+    /* блик рисуем ДО поворота — он должен лежать вдоль стержня, а не по экрану */
+    ctx.fillStyle='rgba(255,255,255,0.26)';
+    rr(-r*0.70,-shaftW*0.32,r*1.40,shaftW*0.24,shaftW*0.12); ctx.fill();
     ctx.rotate(-rot);
-    ctx.fillStyle='#565c66';
+    ctx.fillStyle='#333944';
     for(const e of [-1,1]) for(const k of [-1,1]){
-      ctx.beginPath(); ctx.arc(e*r*0.62,k*r*0.30,r*0.07,0,TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(e*r*0.62,k*r*0.30,r*0.10,0,TAU); ctx.fill();
     }
     ctx.font='800 '+Math.max(6,r*0.5)+'px system-ui,sans-serif';
     ctx.textAlign='center'; ctx.textBaseline='middle';
@@ -1651,6 +1666,7 @@ function drawSky(){
 /* Градиент ночного неба — один на кадр, переиспользуется и небом, и вырезом
    месяца. Пересоздаётся только при смене размера поля. */
 let skyGrad=null, skyGradH=0;
+let cityGlow=null, cityGlowH=0;   // тёплая засветка неба над крышами
 function skyGradient(){
   if(!skyGrad||skyGradH!==PLAY_H){
     skyGrad=ctx.createLinearGradient(0,0,0,PLAY_H);
@@ -1731,6 +1747,9 @@ function buildSkyline(){
     }
     sky.push({cfg:L, blocks:blocks});
   }
+  /* Один узнаваемый силуэт в дальнем слое: три слоя прямоугольников одного
+     ритма читались как копипаста, взгляду не за что зацепиться. */
+  sky[0].blocks.push({x:W*0.715,w:15,h:groundY*0.42,wins:[],roof:[],tower:true});
 }
 function drawSkyline(){
   if(!sky) buildSkyline();
@@ -1744,6 +1763,10 @@ function drawSkyline(){
       if(bx>W+90||bx+b.w<-90) continue;
       const by=base-b.h;
       ctx.fillRect(bx,by,b.w,b.h);
+      if(b.tower){                                   // телебашня: площадка + мачта
+        ctx.fillRect(bx-b.w*0.55,by+b.h*0.16,b.w*2.1,b.h*0.075);   // смотровая площадка
+        ctx.fillRect(bx+b.w*0.34,by-groundY*0.085,b.w*0.32,groundY*0.085);
+      }
       for(const rf of b.roof){
         if(rf.t==='ant'){ ctx.fillRect(bx+rf.x,by-rf.h,rf.w,rf.h); }
         else ctx.fillRect(bx+rf.x,by-rf.h,rf.w,rf.h);
@@ -1772,6 +1795,14 @@ function drawSkyline(){
     hg.addColorStop(1,'rgba(58,45,84,'+dens+')');
     ctx.fillStyle=hg;
     ctx.fillRect(0,hz,W,hh);
+    /* маячок — ПОСЛЕ дымки, иначе дальний слой его гасит */
+    for(const b of L.blocks){
+      if(!b.tower) continue;
+      const bx=b.x+dx; if(bx>W+90||bx+b.w<-90) continue;
+      const ty=base-b.h-groundY*0.085;
+      ctx.fillStyle='rgba(255,72,58,'+(0.28+0.72*Math.abs(Math.sin(realTime*1.5))).toFixed(2)+')';
+      ctx.beginPath(); ctx.arc(bx+b.w/2,ty,2,0,TAU); ctx.fill();
+    }
   }
 }
 /* ---------- ПУЛЬТ: две кнопки, палец не лезет в игру ---------- */
@@ -1911,11 +1942,14 @@ function drawDog(){
   let scare=false;
   for(let i=0;i<bones.length;i++){ const b=bones[i];
     if(!b.dead&&b.poison&&!b.sly&&Math.abs(b.x-dog.x)<80&&b.y>groundY-300&&b.y<groundY-40){ scare=true; break; } }
+  const sad=(state==='over');   // партия кончилась — поза должна это говорить
   const main='#e2a24f', dark='#c78a3c', light='#f3c98a';
   /* хвост */
-  const wag=Math.sin(realTime*(carrying?7:13))*0.5;
+  const wag=sad?0:Math.sin(realTime*(carrying?7:13))*0.5;
   ctx.save();
-  ctx.translate(-25,-31); ctx.rotate(-0.5+wag*0.6);
+  /* Хвост нарисован вектором (-13,-14) — вверх-влево. Чтобы он ПОВИС, его надо
+     довернуть против часовой на ~78°, а не по часовой: +0.85 задирало его торчком. */
+  ctx.translate(-25,-31); ctx.rotate(sad?-1.35:(-0.5+wag*0.6));
   ctx.strokeStyle=dark; ctx.lineWidth=7; ctx.lineCap='round';
   ctx.beginPath(); ctx.moveTo(0,0); ctx.quadraticCurveTo(-8,-6,-13,-14); ctx.stroke();
   ctx.restore();
@@ -1938,7 +1972,7 @@ function drawDog(){
   rr(17,-18,6,18-lift,3); ctx.fill();
   /* голова */
   ctx.save();
-  ctx.translate(22,-40);
+  ctx.translate(22,sad?-35:-40);   // голова опущена
   if(stunned) ctx.rotate(0.12*Math.sin(realTime*20));
   ctx.fillStyle=main;
   ctx.beginPath(); ctx.arc(0,0,13,0,TAU); ctx.fill();
@@ -1956,7 +1990,7 @@ function drawDog(){
   ctx.fillStyle=dark;
   ctx.save();
   ctx.translate(-4,-9);
-  ctx.rotate((stunned?1.05:0.5+(moving?0.22:0)+(scare?0.30:0))+Math.sin(realTime*9)*0.05);
+  ctx.rotate((sad?1.25:(stunned?1.05:0.5+(moving?0.22:0)+(scare?0.30:0)))+Math.sin(realTime*9)*0.05);
   ctx.beginPath(); ctx.ellipse(0,6,5.5,10,0,0,TAU); ctx.fill();
   ctx.restore();
   /* глаз */
@@ -1965,6 +1999,9 @@ function drawDog(){
     ctx.beginPath();
     ctx.moveTo(2,-6); ctx.lineTo(8,0); ctx.moveTo(8,-6); ctx.lineTo(2,0);
     ctx.stroke();
+  }else if(sad){
+    ctx.strokeStyle='#26160c'; ctx.lineWidth=2; ctx.lineCap='round';
+    ctx.beginPath(); ctx.arc(5.5,-4,3.4,0.25,Math.PI-0.25); ctx.stroke();   // закрытый, уголками вниз
   }else{
     const blink=!scare&&(realTime%3.4)<0.11;  // моргает; когда страшно — нет
     if(blink){
@@ -2014,6 +2051,7 @@ function drawParticles(){
 function drawFloaters(){
   for(let i=0;i<floaters.length;i++){
     const f=floaters[i];
+    if(f.delay>0) continue;
     const t=1-f.life/f.max;
     const sc=1+0.45*Math.max(0,1-t*3.5);
     const a=(f.life/f.max<0.35)?(f.life/f.max/0.35):1;
@@ -2047,10 +2085,14 @@ function drawHUD(){
 
   /* счёт с иконкой-косточкой */
   const pk=1+0.30*scorePunch, sy=58+SAFE_TOP;
-  drawBone(28,sy,-0.5,11*pk,false);
-  txt(String(score),46,sy,30*pk,'#ffffff','left');
-  if(combo>0) txt('+'+curDeliveryPts()+T('perBone'),46,sy+24,12,'#8fe06a','left','600');
-  txt(T('best')+best,W-14,sy,14,'rgba(255,255,255,0.55)','right');
+  /* На экране смерти счёт и рекорд уже написаны крупно по центру — здесь их
+     повторять незачем: получалось два счёта на одном экране. */
+  if(state!=='over'){
+    drawBone(28,sy,-0.5,11,false);            // иконка БЕЗ пульса: раздутая налезала на цифру
+    txt(String(score),52,sy,30*pk,'#ffffff','left');
+    if(combo>0) txt('+'+curDeliveryPts()+T('perBone'),52,sy+24,12,'#8fe06a','left','600');
+    txt(T('best')+best,W-14,sy,14,'rgba(255,255,255,0.55)','right');
+  }
 }
 function drawLang(){
   if(!langVisible()) return;
@@ -2142,7 +2184,11 @@ function drawPause(){
   drawBtn(pauseMenuRect(),  T('menu'),'ghost');
 }
 function drawOver(){
-  ctx.fillStyle='rgba(10,8,18,0.66)'; ctx.fillRect(0,0,W,PLAY_H);
+  /* Виньетка вместо ровной плёнки: собака остаётся в тусклом «прожекторе»,
+     а двор уходит в тень. Кадр смерти — самый пересматриваемый в игре. */
+  const vg=ctx.createRadialGradient(dog.x,groundY-30,12,dog.x,groundY-30,Math.max(W,PLAY_H)*0.80);
+  vg.addColorStop(0,'rgba(10,8,18,0.44)'); vg.addColorStop(1,'rgba(10,8,18,0.90)');
+  ctx.fillStyle=vg; ctx.fillRect(0,0,W,PLAY_H);
   txt(T('over'),W/2,PLAY_H*0.24,Math.min(W*0.17,74),'#e05545');
   txt(T('score')+score,W/2,PLAY_H*0.36,34,'#f4ecd8');
   txt(T('delivered')+delivered,W/2,PLAY_H*0.43,16,'rgba(255,255,255,0.75)','center','600');
@@ -2173,6 +2219,15 @@ function render(){
   ctx.fillStyle=skyGradient(); ctx.fillRect(0,0,W,PLAY_H);
   drawSky();     // млечный путь, звёзды, падающие звёзды
   drawMoon();    // месяц с ореолом
+  /* ЗАСВЕТКА: ночное небо над городом всегда подсвечено снизу. Без неё небо
+     обрывалось в чёрные прямоугольники, а середина кадра оставалась пустой. */
+  if(!cityGlow||cityGlowH!==groundY){
+    cityGlow=ctx.createLinearGradient(0,groundY*0.50,0,groundY+4);
+    cityGlow.addColorStop(0,'rgba(255,170,90,0)');
+    cityGlow.addColorStop(1,'rgba(255,170,90,0.09)');
+    cityGlowH=groundY;
+  }
+  ctx.fillStyle=cityGlow; ctx.fillRect(0,groundY*0.50,W,groundY*0.50+4);
   /* ГОРОД в три слоя */
   drawSkyline();
   /* туман у самой земли: сшивает город с площадкой */
@@ -2188,9 +2243,13 @@ function render(){
   /* фонари: тёплые пятна у каждой будки, у горячей ярче и дышит */
   for(const sd of [-1,1]){
     const lx=(sd===-1)?kennelLX:kennelRX, hot=hotAt(sd);
-    const rad=hot?92:58, pulse=hot?(1+0.06*Math.sin(realTime*3.4)):1;
+    /* сдал кость — будка отвечает светом: награда становится событием сцены,
+       а не только текстом. Видно боковым зрением. */
+    const fl=(deliverFlash>0&&sd===deliverSide)?clamp(deliverFlash/0.5,0,1):0;
+    const rad=(hot?92:58)*(1+0.85*fl), pulse=hot?(1+0.06*Math.sin(realTime*3.4)):1;
     const lg=ctx.createRadialGradient(lx,groundY-KH*0.5,2,lx,groundY-KH*0.5,rad*pulse);
-    lg.addColorStop(0,hot?'rgba(255,205,90,0.30)':'rgba(255,225,170,0.15)');
+    lg.addColorStop(0,hot?('rgba(255,205,90,'+(0.30+0.30*fl).toFixed(2)+')')
+                        :('rgba(255,225,170,'+(0.15+0.38*fl).toFixed(2)+')'));
     lg.addColorStop(1,'rgba(255,205,90,0)');
     ctx.fillStyle=lg;
     ctx.beginPath(); ctx.arc(lx,groundY-KH*0.5,rad*pulse,0,TAU); ctx.fill();
@@ -2247,8 +2306,14 @@ function render(){
     ctx.lineWidth=7;
     ctx.strokeRect(3.5,3.5,W-7,PLAY_H-7);
     ctx.globalAlpha=1;
-    const left=Math.ceil(invT);
-    txt(T('mirrorBanner')+CONFIG.invertHotMult+'   '+left,W/2,PLAY_H-14,15,'#ffffff','center','700');
+    /* Остаток времени — ПОЛОСОЙ. Голая цифра липла к множителю:
+       «ОБЕ БУДКИ ×4   7» читалось как «×47». Полоса считывается без чтения. */
+    txt(T('mirrorBanner')+CONFIG.invertHotMult,W/2,PLAY_H-18,15,'#ffffff','center','700');
+    const twid=W*clamp(invT/CONFIG.invertTime,0,1);
+    ctx.globalAlpha=0.9*fade;
+    ctx.fillStyle=(Math.floor(realTime*6)%2)?'#ffffff':'#ff8a3d';
+    ctx.fillRect((W-twid)/2,PLAY_H-8,twid,4);
+    ctx.globalAlpha=1;
   }
   drawParticles();
   drawFloaters();
