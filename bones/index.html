@@ -8,6 +8,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bones">
 <meta name="theme-color" content="#0d0f14">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
 <meta name="description" content="Catch bones midair, haul them to the kennels, and don't starve.">
 <title>BONES</title>
 <style>
@@ -217,6 +220,25 @@ const STR={
     tag5:'Gold — dash · Stone — heavy',
     tag6:'Hold the buttons below · A/D on keyboard',
     start:'TAP / SPACE — START',
+    play:'PLAY',
+    howto:'HOW TO PLAY',
+    back:'BACK',
+    paused:'PAUSED',
+    resume:'RESUME',
+    restart:'RESTART',
+    menu:'MENU',
+    help1:'Catch bones midair and carry them to a kennel.',
+    help2:'Any kennel = 10 points. The hot one also feeds ×2…×5.',
+    help3:'The bar up top is your belly. It empties. Empty = over.',
+    hNorm:'Bone — food and points',
+    hSkull:'Skull — double damage',
+    hRot:'Rotten — normal damage',
+    hGold:'Gold — a burst of speed',
+    hIron:'Iron — you turn heavy',
+    hMagic:'Magic — belly full at once',
+    hShield:'Shield — bad bones shatter',
+    hVac:'Vacuum — food flies to your mouth',
+    hMirror:'Mirror — controls flip, both kennels ×4',
     best:'Best: ',
     perBone:' per bone',
     over:'STARVED',
@@ -250,6 +272,25 @@ const STR={
     tag5:'Золотая — рывок · Каменная — тяжесть',
     tag6:'Держи кнопки внизу · A/D на клавиатуре',
     start:'ТАП / ПРОБЕЛ — СТАРТ',
+    play:'ИГРАТЬ',
+    howto:'КАК ИГРАТЬ',
+    back:'НАЗАД',
+    paused:'ПАУЗА',
+    resume:'ПРОДОЛЖИТЬ',
+    restart:'ЗАНОВО',
+    menu:'В МЕНЮ',
+    help1:'Лови кости в воздухе и таскай их в будку.',
+    help2:'Любая будка = 10 очков. Горячая ещё и кормит ×2…×5.',
+    help3:'Шкала сверху — сытость. Она тает. Пустая — конец.',
+    hNorm:'Обычная — еда и очки',
+    hSkull:'Череп — двойной урон',
+    hRot:'Тухлая — обычный урон',
+    hGold:'Золотая — рывок',
+    hIron:'Железная — тяжесть',
+    hMagic:'Волшебная — сразу полная шкала',
+    hShield:'Щит — вредные разбиваются',
+    hVac:'Пылесос — еда летит в пасть',
+    hMirror:'Зеркало — кнопки местами, обе будки ×4',
     best:'Рекорд: ',
     perBone:' за кость',
     over:'ГОЛОД',
@@ -520,8 +561,37 @@ function mouthPos(){ return {x:dog.x+37*DOG_S*dog.dir, y:groundY-34*DOG_S}; }
 function muteRect(){ return {x:W-46,y:10+SAFE_TOP,w:36,h:36}; }
 /* Кнопка языка — ТОЛЬКО на стартовом экране, и внизу по центру. В правом
    верхнем углу она садилась на шкалу голода, а в бою это лишняя мишень. */
-function langRect(){ const w=Math.min(150,W*0.42); return {x:(W-w)/2,y:PLAY_H*0.845-19,w:w,h:38}; }
+function langRect(){ const w=Math.min(150,W*0.42); return {x:(W-w)/2,y:PLAY_H*0.79-19,w:w,h:38}; }
 function langVisible(){ return state==='start'; }
+/* Пауза — слева от звука. Шкала голода укорочена ровно на её ширину,
+   иначе кнопка садится на шкалу (уже наступали с кнопкой языка). */
+function pauseRect(){ return {x:W-46-42,y:10+SAFE_TOP,w:36,h:36}; }
+function pauseVisible(){ return state==='play'||state==='pause'; }
+/* Крупная кнопка по центру: cy — центр по вертикали в игровых единицах. */
+function ctrRect(cy,h){ const w=Math.min(250,W*0.66); return {x:(W-w)/2,y:cy-(h||54)/2,w:w,h:h||54}; }
+function inRect(r,x,y,pad){ const p=pad||0; return x>=r.x-p&&x<=r.x+r.w+p&&y>=r.y-p&&y<=r.y+r.h+p; }
+/* Один источник правды на кнопку: и рисуем, и ловим палец по этим функциям. */
+function startPlayRect()  { return ctrRect(PLAY_H*0.575,56); }
+function startHelpRect()  { return ctrRect(PLAY_H*0.685,48); }
+function helpBackRect()   { return ctrRect(PLAY_H*0.905,48); }
+function pauseResumeRect(){ return ctrRect(PLAY_H*0.46,56); }
+function pauseAgainRect() { return ctrRect(PLAY_H*0.585,46); }
+function pauseMenuRect()  { return ctrRect(PLAY_H*0.70,46); }
+function overMenuRect()   { return ctrRect(PLAY_H*0.775,46); }
+/* style: 'solid' — оранжевая заливка (главное действие), 'ghost' — обводка */
+function drawBtn(r,label,style,alpha){
+  ctx.globalAlpha=(alpha===undefined)?1:alpha;
+  if(style==='ghost'){
+    ctx.fillStyle='rgba(0,0,0,0.42)'; rr(r.x,r.y,r.w,r.h,14); ctx.fill();
+    ctx.strokeStyle='rgba(255,255,255,0.28)'; ctx.lineWidth=1.8; rr(r.x,r.y,r.w,r.h,14); ctx.stroke();
+    txt(label,r.x+r.w/2,r.y+r.h/2,18,'rgba(255,255,255,0.85)','center','700');
+  }else{
+    ctx.fillStyle='#5a2d00'; rr(r.x,r.y+4,r.w,r.h,14); ctx.fill();
+    ctx.fillStyle='#e8842c'; rr(r.x,r.y,r.w,r.h,14); ctx.fill();
+    txt(label,r.x+r.w/2,r.y+r.h/2,24,'#ffffff');
+  }
+  ctx.globalAlpha=1;
+}
 function btnRect(){ const w=Math.min(240,W*0.62),h=56; return {x:(W-w)/2,y:PLAY_H*0.60,w:w,h:h}; }
 /* Кнопки пульта. ВАЖНО: зона нажатия — ровно половина панели без щелей и полей,
    иначе палец, скользящий с кнопки на кнопку, проваливается в «мёртвую» зону
@@ -547,15 +617,25 @@ function addFloater(x,y,t,color,size){ floaters.push({x:x,y:y,txt:t,color:color,
 function onTap(x,y){
   ensureAudio();
   const m=muteRect();
-  if(x>=m.x&&x<=m.x+m.w&&y>=m.y&&y<=m.y+m.h){ setMuted(!muted); SFX.uiTap(); return; }
-  if(langVisible()){
-    const g=langRect();
-    if(x>=g.x&&x<=g.x+g.w&&y>=g.y&&y<=g.y+g.h){ setLang(lang==='ru'?'en':'ru'); SFX.uiTap(); return; }
+  if(inRect(m,x,y)){ setMuted(!muted); SFX.uiTap(); return; }
+  if(pauseVisible()&&inRect(pauseRect(),x,y,6)){ (state==='play')?pauseGame():resumeGame(); return; }
+  if(state==='help'){ if(inRect(helpBackRect(),x,y,10)) goHome(); return; }
+  if(state==='pause'){
+    if(inRect(pauseResumeRect(),x,y,8)){ resumeGame(); return; }
+    if(inRect(pauseAgainRect(),x,y,8)){ startGame(); return; }
+    if(inRect(pauseMenuRect(),x,y,8)){ goHome(); return; }
+    return;                                   // мимо кнопок — ничего, пауза держится
   }
-  if(state==='start'){ startGame(); return; }
+  if(state==='start'){
+    /* Кнопки проверяем ПЕРВЫМИ и с запасом в 10 единиц: иначе промах по
+       «Как играть» на пару пикселей молча запускает партию. */
+    if(inRect(langRect(),x,y,10)){ setLang(lang==='ru'?'en':'ru'); SFX.uiTap(); return; }
+    if(inRect(startHelpRect(),x,y,10)){ openHelp(); return; }
+    startGame(); return;                      // в остальном тап где угодно = старт
+  }
   if(state==='over'&&overDelay<=0){
-    const b=btnRect();
-    if(x>=b.x&&x<=b.x+b.w&&y>=b.y&&y<=b.y+b.h) startGame();
+    if(inRect(overMenuRect(),x,y,8)){ goHome(); return; }
+    if(inRect(btnRect(),x,y)) startGame();
   }
 }
 function clearTouches(){ touchSeq.clear(); padDir=0; }
@@ -663,18 +743,30 @@ window.addEventListener('keydown',function(e){
   else if(c==='ArrowRight'||c==='KeyD'){ keyR=true; }
   else if(c==='Space'){
     if(state==='start') startGame();
+    else if(state==='help') goHome();
+    else if(state==='pause') resumeGame();
     else if(state==='over'&&overDelay<=0) startGame();
   }
-  else if(c==='KeyR'){ if(state==='play'||state==='over') startGame(); }
+  else if(c==='Escape'||c==='KeyP'){
+    if(state==='play') pauseGame();
+    else if(state==='pause') resumeGame();
+    else if(state==='help') goHome();
+  }
+  else if(c==='KeyH'){ if(state==='start') openHelp(); else if(state==='help') goHome(); }
+  else if(c==='KeyR'){ if(state==='play'||state==='over'||state==='pause') startGame(); }
   else if(c==='KeyM'){ setMuted(!muted); }
-  else if(c==='KeyL'){ setLang(lang==='ru'?'en':'ru'); }
+  else if(c==='KeyL'){ if(state==='start') setLang(lang==='ru'?'en':'ru'); }
 });
 window.addEventListener('keyup',function(e){
   if(e.code==='ArrowLeft'||e.code==='KeyA') keyL=false;
   if(e.code==='ArrowRight'||e.code==='KeyD') keyR=false;
 });
 window.addEventListener('blur',function(){ keyL=false; keyR=false; clearTouches(); });
-document.addEventListener('visibilitychange',function(){ last=performance.now(); acc=0; });
+document.addEventListener('visibilitychange',function(){
+  last=performance.now(); acc=0;
+  /* свернул игру / позвонили — партия встаёт на паузу, а не идёт вслепую */
+  if(document.hidden&&state==='play') pauseGame();
+});
 
 /* ---------- запуск / сброс / конец забега ---------- */
 function resetRun(){
@@ -697,6 +789,16 @@ function resetRun(){
   timeScale=1; acc=0;
 }
 function startGame(){ resetRun(); state='play'; SFX.uiTap(); SFX.bark(); }
+/* Пауза замораживает и таймеры приколов: щит на 4 секунды не должен
+   истекать, пока игрок отвечает на звонок. Всё живое чистим на входе. */
+function pauseGame(){
+  if(state!=='play') return;
+  state='pause'; clearTouches(); keyL=false; keyR=false;   // mouseDown живёт в своём блоке — трогать нельзя
+  vacHumStop(); SFX.uiTap();
+}
+function resumeGame(){ if(state!=='pause') return; state='play'; last=performance.now(); acc=0; SFX.uiTap(); }
+function goHome(){ state='start'; clearTouches(); keyL=false; keyR=false; vacHumStop(); SFX.uiTap(); }
+function openHelp(){ state='help'; SFX.uiTap(); }
 function gameOver(){
   if(state!=='play') return;
   state='over';
@@ -1100,31 +1202,35 @@ function frame(now){
   let rdt=(now-last)/1000; last=now;
   if(!isFinite(rdt)||rdt<0) rdt=0.016;
   if(rdt>0.05) rdt=0.05;           // защита от гигантского dt (фон, отладчик)
-  realTime+=rdt;
+  realTime+=rdt;   // UI дышит всегда: мигание, пульсация кнопок
+  /* НА ПАУЗЕ игровое время стоит. Таймеры приколов, оглушение, тряска —
+     всё считается от gdt, поэтому на паузе они замирают, а не сгорают. */
+  const gdt=(state==='pause')?0:rdt;
   /* dpr или размер окна могли смениться между событиями resize */
   const dprNow=clamp(window.devicePixelRatio||1,1,3);
   if(RW!==window.innerWidth||RH!==window.innerHeight||canvas.width!==Math.round(window.innerWidth*dprNow)) resize();
   /* таймеры РЕАЛЬНОГО времени: hit-stop не может заклинить игру */
-  if(hitStop>0){ hitStop-=rdt; timeScale=0.12; } else timeScale=1;
-  if(stunT>0) stunT-=rdt;
-  if(speedT>0) speedT-=rdt;
-  if(slowT>0) slowT-=rdt;
+  if(hitStop>0){ hitStop-=gdt; timeScale=0.12; } else timeScale=1;
+  if(stunT>0) stunT-=gdt;
+  if(speedT>0) speedT-=gdt;
+  if(slowT>0) slowT-=gdt;
   updateSky(rdt);
   updateAmbience();
-  if(auraT>0) auraT-=rdt;
+  if(auraT>0) auraT-=gdt;
   if(vacT>0){
-    vacT-=rdt;
+    vacT-=gdt;
     if(vacHum&&muted) vacHumStop();
     else if(!vacHum&&!muted&&AC) vacHumStart();
     if(vacHum) vacHum.o.frequency.value=92+Math.sin(realTime*24)*6;   // урчит
     if(Math.random()<0.6&&state==='play') addP({kind:'spark',x:mouthPos().x+dog.dir*rand(16,40)*DOG_S,y:mouthPos().y-rand(0,20)*DOG_S,vx:-dog.dir*130,vy:10,g:0,life:0.22,max:0.22,size:rand(1.5,2.6),color:'#b98cff'});
     if(vacT<=0) vacHumStop();
   } else if(vacHum) vacHumStop();
-  if(invT>0){ invT-=rdt; if(invT<=0) invertEnded(); }
-  if(invEndT>0) invEndT-=rdt;
-  if(shakeT>0) shakeT-=rdt;
-  if(hungerFlash>0) hungerFlash-=rdt;
-  if(overDelay>0) overDelay-=rdt;
+  if(state==='pause'&&vacHum) vacHumStop();
+  if(invT>0){ invT-=gdt; if(invT<=0) invertEnded(); }
+  if(invEndT>0) invEndT-=gdt;
+  if(shakeT>0) shakeT-=gdt;
+  if(hungerFlash>0) hungerFlash-=gdt;
+  if(overDelay>0) overDelay-=gdt;
   scorePunch=Math.max(0,scorePunch-rdt*3);
   hotPunch=Math.max(0,hotPunch-rdt*2.5);
   kennelSquash['-1']=Math.max(0,kennelSquash['-1']-rdt*4);
@@ -1137,7 +1243,7 @@ function frame(now){
     const SUB=1/120;
     while(acc>=SUB&&state==='play'){ step(SUB); acc-=SUB; }
   }
-  updateFx(rdt*timeScale); // косметика доигрывает и на экране смерти
+  updateFx(gdt*timeScale); // косметика доигрывает и на экране смерти
   render();
 }
 
@@ -1827,7 +1933,7 @@ function drawFloaters(){
 }
 function drawHUD(){
   /* шкала голода — ниже чёлки на iPhone */
-  const bx=14,by=12+SAFE_TOP,bw=W-28-46,bh=20;
+  const bx=14,by=12+SAFE_TOP,bw=W-28-46-(pauseVisible()?42:0),bh=20;
   const frac=clamp(hunger/CONFIG.hungerMax,0,1);
   ctx.fillStyle='rgba(0,0,0,0.45)'; rr(bx,by,bw,bh,10); ctx.fill();
   let a=1;
@@ -1860,6 +1966,19 @@ function drawLang(){
   ctx.strokeStyle='rgba(255,255,255,0.18)'; ctx.lineWidth=1.5; rr(r.x,r.y,r.w,r.h,12); ctx.stroke();
   txt(lang==='ru'?'English':'Русский',r.x+r.w/2,r.y+r.h/2,15,'rgba(255,255,255,0.8)','center','700');
 }
+function drawPauseBtn(){
+  if(!pauseVisible()) return;
+  const r=pauseRect();
+  ctx.fillStyle='rgba(0,0,0,0.42)'; rr(r.x,r.y,r.w,r.h,9); ctx.fill();
+  const cx=r.x+r.w/2, cy=r.y+r.h/2;
+  ctx.fillStyle='#e8e4d8';
+  if(state==='pause'){                      // на паузе — треугольник «продолжить»
+    ctx.beginPath(); ctx.moveTo(cx-5,cy-9); ctx.lineTo(cx+9,cy); ctx.lineTo(cx-5,cy+9); ctx.closePath(); ctx.fill();
+  }else{
+    rr(cx-7,cy-9,5,18,1.5); ctx.fill();
+    rr(cx+2,cy-9,5,18,1.5); ctx.fill();
+  }
+}
 function drawMute(){
   const m=muteRect();
   ctx.fillStyle='rgba(0,0,0,0.42)'; rr(m.x,m.y,m.w,m.h,9); ctx.fill();
@@ -1885,16 +2004,49 @@ function drawStart(){
   drawBone(W/2-ts*0.95,PLAY_H*0.175,-0.42+Math.sin(realTime*2)*0.12,14,false);
   drawBone(W/2+ts*0.95,PLAY_H*0.175,0.42-Math.sin(realTime*2)*0.12,14,false);
   txt(T('logo'),W/2,PLAY_H*0.26,ts,'#f4ecd8');
-  const ly=PLAY_H*0.40, lh=Math.max(22,PLAY_H*0.036);
-  txt(T('tag1'),W/2,ly,16,'#ffffff','center','600');
-  txt(T('tag2'),W/2,ly+lh,16,'#ffffff','center','600');
-  txt(T('tag3'),W/2,ly+lh*2,16,'#ffb830','center','600');
-  txt(T('tag4'),W/2,ly+lh*3,16,'#9be05a','center','600');
-  txt(T('tag5'),W/2,ly+lh*3.85,13,'rgba(255,255,255,0.55)','center','normal');
-  txt(T('tag6'),W/2,ly+lh*4.7,13,'rgba(255,255,255,0.5)','center','normal');
-  if(best>0) txt(T('best')+best,W/2,ly+lh*5.5,15,'rgba(255,255,255,0.75)');
-  const a=0.55+0.45*Math.abs(Math.sin(realTime*3.2));
-  txt(T('start'),W/2,PLAY_H*0.72,22,'#ffd94d','center','bold',a);
+  /* Раньше здесь висели шесть строк подряд — стена текста на титуле.
+     Осталось два предложения, остальное уехало в «Как играть». */
+  txt(T('tag1'),W/2,PLAY_H*0.375,16,'#ffffff','center','600');
+  txt(T('tag2'),W/2,PLAY_H*0.375+Math.max(22,PLAY_H*0.036),16,'#ffb830','center','600');
+  if(best>0) txt(T('best')+best,W/2,PLAY_H*0.475,16,'rgba(255,255,255,0.75)');
+  const a=0.88+0.12*Math.abs(Math.sin(realTime*3.2));
+  drawBtn(startPlayRect(),T('play'),'solid',a);
+  drawBtn(startHelpRect(),T('howto'),'ghost');
+}
+/* ---- «Как играть»: каждая примета показана НАСТОЯЩЕЙ костью из игры,
+   а не описана словами. Рисуем теми же функциями, что и в бою. ---- */
+function drawHelp(){
+  ctx.fillStyle='rgba(8,7,14,0.94)'; ctx.fillRect(0,0,W,PLAY_H);   // луна просвечивала сквозь заголовок
+  txt(T('howto'),W/2,PLAY_H*0.07,Math.min(W*0.085,32),'#f4ecd8');
+  txt(T('help1'),W/2,PLAY_H*0.135,13,'rgba(255,255,255,0.8)','center','600');
+  txt(T('help2'),W/2,PLAY_H*0.175,13,'rgba(255,255,255,0.8)','center','600');
+  txt(T('help3'),W/2,PLAY_H*0.215,13,'rgba(255,255,255,0.8)','center','600');
+  const rows=[
+    ['hNorm',  false,null,     false],
+    ['hSkull', true, null,     false],
+    ['hRot',   true, null,     true ],
+    ['hGold',  false,'speed',  false],
+    ['hIron',  false,'slow',   false],
+    ['hMagic', false,'magic',  false],
+    ['hShield',false,'aura',   false],
+    ['hVac',   false,'vac',    false],
+    ['hMirror',false,'invert', false]
+  ];
+  const ix=W*0.155, tx=W*0.255, r=13;
+  for(let i=0;i<rows.length;i++){
+    const y=PLAY_H*(0.30+0.0585*i), it=rows[i];
+    drawBone(ix,y,it[2]?0:-0.45,r,it[1],it[2],it[3]);
+    txt(T(it[0]),tx,y,14,'rgba(255,255,255,0.92)','left','600');
+  }
+  txt(T('tag6'),W/2,PLAY_H*0.835,12,'rgba(255,255,255,0.5)','center','normal');
+  drawBtn(helpBackRect(),T('back'),'ghost');
+}
+function drawPause(){
+  ctx.fillStyle='rgba(8,7,14,0.74)'; ctx.fillRect(0,0,W,PLAY_H);
+  txt(T('paused'),W/2,PLAY_H*0.30,Math.min(W*0.15,62),'#f4ecd8');
+  drawBtn(pauseResumeRect(),T('resume'),'solid');
+  drawBtn(pauseAgainRect(), T('restart'),'ghost');
+  drawBtn(pauseMenuRect(),  T('menu'),'ghost');
 }
 function drawOver(){
   ctx.fillStyle='rgba(10,8,18,0.66)'; ctx.fillRect(0,0,W,PLAY_H);
@@ -1914,6 +2066,7 @@ function drawOver(){
   txt(T('again'),b.x+b.w/2,b.y+b.h/2,24,'#ffffff');
   ctx.globalAlpha=1;
   txt(T('orR'),W/2,b.y+b.h+26,13,'rgba(255,255,255,0.5)','center','normal');
+  drawBtn(overMenuRect(),T('menu'),'ghost',(overDelay>0)?0.5:1);
 }
 function render(){
   /* поля по краям (экран шире/выше игрового поля) */
@@ -2007,10 +2160,13 @@ function render(){
   ctx.restore();
   drawPad(); // пульт поверх всего: сцена в него не залезает
   /* интерфейс */
-  if(state==='play'||state==='over') drawHUD();
+  if(state==='play'||state==='over'||state==='pause') drawHUD();
   if(state==='start') drawStart();
-  if(state==='over') drawOver();
+  if(state==='help')  drawHelp();
+  if(state==='pause') drawPause();
+  if(state==='over')  drawOver();
   drawMute();
+  drawPauseBtn();
   drawLang();
   ctx.restore(); // снимаем обрезку поля
 }
