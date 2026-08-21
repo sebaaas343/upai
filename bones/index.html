@@ -1,0 +1,2039 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Bones">
+<meta name="theme-color" content="#0d0f14">
+<meta name="description" content="Catch bones midair, haul them to the kennels, and don't starve.">
+<title>BONES</title>
+<style>
+  html,body{margin:0;padding:0;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;background:#0d0f14;overscroll-behavior:none}
+  canvas{display:block;position:fixed;inset:0;width:100%;height:100%}
+  /* зонды безопасных зон: чёлка сверху и полоса жеста «домой» снизу */
+  #safe{position:fixed;top:0;left:0;width:0;height:env(safe-area-inset-top,0px);pointer-events:none}
+  #safeb{position:fixed;bottom:0;left:0;width:0;height:env(safe-area-inset-bottom,0px);pointer-events:none}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="safe"></div>
+<div id="safeb"></div>
+<script>
+'use strict';
+/* ============================================================
+   «КОСТОЧКИ» — гиперказуальный прототип (одна гипотеза):
+   решение «сдать кость рядом или бежать через экран за ×3» —
+   достаточно ли оно весёлое, чтобы переигрывать?
+   ============================================================ */
+
+/* ---------- КОНФИГ: все игровые настройки в одном месте ---------- */
+const CONFIG = {
+  /* МАСШТАБ СЦЕНЫ. На мониторе (1920px) между будками умещалось ~20 длин собаки —
+     отсюда ощущение простора и «бежать далеко». В узком поле собака была великаном
+     (5 длин на дистанцию), поэтому забег читался как «два шага», хотя длился те же 3с.
+     Уменьшаем собаку и будки — двор снова становится большим. */
+  dogScale       : 0.56, // множитель размера собаки (относительно базового масштаба сцены)
+  boneScale      : 0.86, // множитель размера костей (меньше собаки не трогаем — нужна читаемость примет)
+  catchRadius    : 42,   // радиус ловли в ИГРОВЫХ единицах — НЕ зависит от размера собаки
+  catchBandH     : 92,   // высота зоны ловли над землёй (игровые единицы)
+  /* ПУЛЬТ — две кнопки. Нажимаемая зона: ровно половина панели, без щелей
+     и полей, чтобы палец, скользящий с одной кнопки на другую, никуда не
+     проваливался. Держишь — бежит, отпустил — стоит (как на клавиатуре). */
+  ctrlFrac       : 0.17, // доля высоты поля под пульт
+  ctrlMin        : 118,  // но не меньше (игровые единицы) — под большой палец
+  ctrlMax        : 165,  // и не больше
+  dogSpeedEmpty  : 1.25, // скорость собаки БЕЗ кости (ширин экрана в секунду)
+  dogSpeedCarry  : 0.32, // скорость собаки С костью (~2.5 сек от будки до будки)
+  dogAccel       : 14,   // сглаживание движения к пальцу (больше = резче)
+  boneFallSpeed  : 0.21, // скорость падения костей (высот поля в секунду)
+  boneFallSpeedMax:0.24, // потолок скорости падения (растёт ЕЛЕ-ЕЛЕ, это не реакция-тест)
+  fallRampTime   : 90,   // за сколько секунд падение доходит до потолка
+  /* ПОГОДА. Дождь усиливается ВМЕСТЕ с дугой сложности — игрок чувствует
+     нарастание, не глядя на цифры. Капли бледные и тонкие: небо над зоной
+     костей должно остаться читаемым, шум там дороже красоты. */
+  /* НОЧНОЕ НЕБО. Дождь и гроза убраны — вместо них тихая звёздная ночь.
+     Звёзды считаются один раз на раскладку, в кадре только точки. */
+  starCount      : 150,  // сколько звёзд всего (три слоя по яркости)
+  shootMin       : 7,    // падающая звезда раз в столько секунд (от)
+  shootMax       : 19,   // ...до
+  spawnInterval  : 1.30, // средний интервал появления костей В НАЧАЛЕ (сек)
+  /* ПЛОХИЕ ДОБАВЛЯЮТСЯ СВЕРХУ, А НЕ ВМЕСТО ХОРОШИХ.
+     Доля яда считается от ВСЕХ костей, поэтому раньше крещендо отнимало еду:
+     съедобных было 85% на старте и 36% к 180-й секунде, поток еды падал на 41%.
+     Теперь интервал вычисляется от ПОТОКА ЕДЫ: сколько бы ни развелось плохих,
+     съедобных падает столько же, сколько на первой секунде. Спавн уплотняется
+     ровно настолько, насколько нужно, чтобы это удержать. */
+  spawnIntervalMin:0.45, // ПОЛ: ниже не уплотняем, иначе экран превращается в кашу
+  spawnJitter    : 0.25, // случайный разброс интервала (сек)
+  hungerMax      : 100,  // максимум шкалы голода
+  /* РАЗОГРЕВ: первые drainWarmup секунд голод мягче — новичок учит кнопки.
+     Вся остальная кривая просто сдвигается на эти секунды позже. */
+  drainWarmup    : 15,
+  hungerDrainEase: 4.5,  // стартуем отсюда и к концу разогрева выходим на hungerDrain
+  hungerDrain    : 5.5,  // скорость голода после разогрева (ед/сек)
+  hungerDrainMax : 7.3,  // уровень к концу разгона
+  drainRampTime  : 75,   // за сколько секунд голод разгоняется до этого уровня
+  drainLate      : 0.02, // после разгона голод ползёт дальше, но еле-еле
+  drainCap       : 8.2, // ПОТОЛОК: прокормиться можно ТОЛЬКО регулярно бегая в горячую будку —
+                         // ближняя будка одна не кормит. В этом и дилемма;
+                         // ошибки (яд −13, уроненная кость, промахи) роют яму — умираешь ОТ НИХ
+  hungerRefill   : 8,    // еда за доставку в обычную будку (горячая множит: 16 / 24 / 32)
+  /* ВОЛШЕБНАЯ КОСТЬ: ловится на лету, мгновенно заливает сытость до максимума.
+     Выпадает ТОЛЬКО когда сытость ниже magicNeed — всегда спасение,
+     никогда не сгорает впустую на полной шкале. */
+  magicChance    : 0.015,
+  magicNeed      : 55,
+  /* ТРИ ПРИКОЛА. Ловятся на лету, работают от РЕАЛЬНОГО времени и входят в игру
+     ЛЕСЕНКОЙ: пылесос с 60-й (чистая награда, правил не меняет), щит с 90-й
+     (защита — в гущу смертей), инверсия со 150-й (переворот правил —
+     когда база выучена наизусть и кривые застыли). */
+  auraChance     : 0.01, // 🛡 щит: вредная кость об тебя разбивается
+  auraFrom       : 90,   // в гущу смертей (40–105с), а не после них
+  auraTime       : 4.0,  // короткий: это страховка, а не режим бессмертия
+  vacChance      : 0.01, // 🌀 пылесос: еда из НИЖНЕЙ половины экрана летит в пасть
+  vacFrom        : 60,
+  vacTime        : 8.0,
+  vacPullSpeed   : 950,  // ед/сек, с какой кости летят к пасти
+  /* ⇄ ЗЕРКАЛО: кнопки меняются местами — левая ведёт ВПРАВО. Что съедобно,
+     не меняется: ломаются только руки. Плата за это — ОБЕ будки на всё время
+     становятся ×4, и бежать можно в любую. Награда огромная, добежать трудно. */
+  invertChance   : 0.01, // как у пылесоса — примерно раз за партию
+  invertFrom     : 60,   // приходит вместе с пылесосом: база уже в руках
+  invertTime     : 8.0,  // столько же, сколько пылесос
+  invEndFlash    : 1.4,  // сколько держится вспышка «всё как обычно»
+  invertHotMult  : 4,    // обе будки на время зеркала: 32 сытости за доставку
+  edibleGuarantee: 2.4,  // АНТИ-ЗАСУХА: если съедобная не падала дольше этого — следующая обязана быть съедобной
+  speedBoneEnabled:true, // ⚡ быстрая кость: ВЫКЛЮЧАТЕЛЬ для сравнения (false = без неё)
+  speedChanceStart:0.0,  // ⚡ в начале не падает — как и мясо, приходит когда нужнее
+  speedChanceMax : 0.07, // ...и вырастает к концу разгона
+  speedRampTime  : 75,   // за сколько секунд рывок доходит до максимума
+  speedBoostTime : 4.5,  // длительность рывка (сек, РЕАЛЬНОЕ время)
+  slowStart      : 20,   // с какой секунды падают КАМЕННЫЕ кости
+  slowChanceMax  : 0.12, // их доля среди «съедобных» в глубокой игре
+  slowRampTime   : 75,   // за сколько секунд после slowStart доля доходит до максимума
+  slowTime       : 4.0,  // длительность «тяжести» после касания камня (сек, РЕАЛЬНОЕ время)
+  slowFactor     : 0.38, // множитель скорости собаки под тяжестью — камень почти останавливает
+  stoneFallMult  : 1.25, // камень тяжёлый — падает заметно быстрее (честная примета)
+  /* ПЛОХИЕ КОСТИ РАЗГОНЯЮТСЯ. Обычные падают с прежней скоростью — темп решений
+     не меняется, игра не превращается в тест на реакцию. А вот яд и камни
+     со временем летят всё быстрее: уворачиваться труднее, и сама скорость
+     работает приметой — что летит быстро, то опасно. */
+  /* ЕДИНАЯ ДУГА. Скорость гнили и урон яда — ОДНА кривая, прочитанная в
+     разные стороны: чем быстрее летит гниль, тем дешевле стоит ошибка.
+     Обе едут от старта партии и приходят к пределам за arcTime секунд.
+     ПРЕДЕЛ СКОРОСТИ посчитан, а не выбран: собаке С КОСТЬЮ в зубах нужно
+     0.61с, чтобы уйти в сторону на ширину ловли (она вчетверо медленнее
+     пустой). При ×2.6 кость летит 1.29с — вдвое больше, чем нужно на уворот,
+     остаётся ~0.7с на то, чтобы разглядеть и решить. Выше ×3 это уже
+     проверка рефлекса, а не решение. */
+  arcTime        : 150,  // за сколько секунд дуга проходится целиком
+  badFallStart   : 1.0,  // множитель скорости плохих костей в начале
+  badFallMax     : 2.6,  // ...и предел дуги
+  badFallLateDiv : 3,    // после дуги скорость ползёт дальше втрое медленнее — без потолка,
+                         // чтобы партия обязана была когда-нибудь кончиться
+  poisonStart    : 0.15, // доля ядовитых костей в начале
+  poisonMax      : 0.44, // доля ядовитых к концу первого разгона
+  poisonRampTime : 60,   // за сколько секунд яд доходит до poisonMax
+  poisonLateMax  : 0.56, // крещендо: к чему яд ползёт дальше в глубокой игре
+  poisonLateRamp : 120,  // за сколько секунд после первого разгона доползает
+  sneakStart     : 12,   // с какой секунды появляются ТУХЛЫЕ кости (слабый яд, своя примета — муха)
+  sneakMax       : 0.55, // их доля среди ядовитых в глубокой игре
+  sneakRampTime  : 70,   // за сколько секунд доля доходит до максимума
+  stunTime       : 0.6,  // оглушение от яда (сек, РЕАЛЬНОЕ время)
+  /* Урон едет по той же дуге, но ВНИЗ. ПОЛ 8 = ровно одна доставка в обычную
+     будку (явный яд бьёт вдвое, значит 16 — одна доставка в горячую ×2).
+     Ниже опускать нельзя: яд перестанет быть причиной проигрыша. */
+  poisonHungerHit: 16.5, // сколько яд отнимает сытости в начале партии
+  poisonHitFloor : 8,    // ...и к чему спускается за arcTime
+  obviousHitMult : 2,    // ЯВНЫЙ яд (череп, зелень) бьёт вдвое: его видно за версту — влететь в него грубая ошибка
+  hotPeriod      : 8.0,  // период перевыбора горячей будки (сек)
+  /* ПОСЛЕ hotLateFrom окно сжимается: успеть добежать всё труднее.
+     Ниже hotPeriodMin не опускаем — забег с костью занимает ~3с,
+     при более коротком окне горячая будка стала бы недостижимой в принципе. */
+  hotLateFrom    : 120,
+  hotPeriodMin   : 4.0,
+  hotLateRamp    : 120,  // окно доходит до 4с к 240-й
+  hotWarn        : 1.0,  // за сколько секунд до смены будка мигает
+  /* Сторона выбирается СЛУЧАЙНО: раньше она всегда перекидывалась напротив,
+     и это читалось наперёд. Теперь иногда остаётся — но множитель всё равно
+     перевыбирается, так что «осталась» тоже событие. */
+  hotStayChance  : 0.35, // шанс, что горячей останется та же будка
+  /* ярлык на будке = настоящий множитель еды: 8 / 16 / 24 / 32.
+     ×2 чаще всех, ×3 реже, ×4 редкая удача. Среднее 2.51 → 20 еды за горячую доставку. */
+  hotMults       : [2,3,4],
+  hotMultChances : [0.58,0.33,0.09],
+  /* ПОСЛЕ hotChancesFrom веса плывут к hotChancesLate: щедрые иксы становятся
+     обычным делом ровно тогда, когда окно сжалось и добежать труднее. */
+  hotChancesLate : [0.30,0.55,0.15],
+  hotChancesFrom : 120,
+  hotChancesRamp : 120,  // 120-я → 240-я: дозревает в партиях, которые реально бывают
+  /* минимальный зазор по горизонтали между хорошей и плохой костью,
+     пока обе в верхней части экрана: уворот должен быть возможен */
+  minSepX        : 108,
+  sepBandFrac    : 0.55,
+  /* ДИЛЕММА КАЖДОЙ КОСТИ: съесть или сохранить.
+     Обычная будка — пёс ПРЯЧЕТ кость в запас: очко, но еды мало.
+     Горячая — пёс её СЪЕДАЕТ: сытно (×2…×5), но очка нет.
+     Перекос в очки — умрёшь, перекос в еду — не наберёшь счёт. */
+  /* ДИЛЕММА ЧЕРЕЗ ОПАСНОСТЬ, а не через очки: кость везде стоит одинаково,
+     но за едой надо БЕЖАТЬ ЧЕРЕЗ ЯДОВИТЫЙ ДОЖДЬ. Замер трёх стратегий:
+     только в горячую — 40 очков и смерть на 18-й секунде;
+     только в ближнюю — 160 и смерть на 36-й; смесь — 210 и выжила. */
+  pointsCold     : 10,   // очки за любую доставленную кость
+  /* СЕРИЯ ЧИСТЫХ ДОСТАВОК: каждая доставка без полученного удара делает
+     следующую дороже на comboStep, до потолка comboMax. Яд и камень сбрасывают.
+     Очки перестают быть «время × 5»: чистая партия почти вдвое дороже грязной. */
+  comboStep      : 2,
+  comboMax       : 20,
+  pointsHot      : 10    // ...в горячей столько же, но там ещё и кормят ×hotMult
+};
+
+/* ---------- утилиты ---------- */
+const TAU=Math.PI*2;
+const clamp=(v,a,b)=>v<a?a:(v>b?b:v);
+const lerp=(a,b,t)=>a+(b-a)*t;
+const rand=(a,b)=>a+Math.random()*(b-a);
+
+/* ---------- localStorage: безопасно, с префиксом ---------- */
+function lsGet(k,d){ try{ const v=localStorage.getItem('kostochki_'+k); return v===null?d:v; }catch(e){ return d; } }
+function lsSet(k,v){ try{ localStorage.setItem('kostochki_'+k,String(v)); }catch(e){} }
+
+/* ---------- ЯЗЫК ----------
+   Весь текст игры живёт здесь и больше нигде. Английский — база (магазин),
+   русский — вторым. Язык берётся из системы телефона, кнопка на стартовом
+   экране переключает и запоминает. Ключ = смысл, а не русская фраза:
+   иначе третий язык придётся вписывать в два места. */
+const STR={
+  en:{
+    logo:'BONES',
+    tag1:'Catch bones midair — carry them home!',
+    tag2:'Any kennel = 10 points per bone',
+    tag3:'The hot kennel feeds ×2…×5 — but it is far',
+    tag4:'Skull — double damage · Rotten — normal',
+    tag5:'Gold — dash · Stone — heavy',
+    tag6:'Hold the buttons below · A/D on keyboard',
+    start:'TAP / SPACE — START',
+    best:'Best: ',
+    perBone:' per bone',
+    over:'STARVED',
+    score:'Score: ',
+    delivered:'Bones delivered: ',
+    newBest:'NEW BEST!',
+    again:'PLAY AGAIN',
+    orR:'or press R',
+    shield:'SHIELD',
+    shieldGet:'SHIELD!',
+    streakLost:'STREAK ✕',
+    heavy:'HEAVY!',
+    zoom:'ZOOM!',
+    fed:'FULL!',
+    vac:'VACUUM!',
+    mirrorOn:'CONTROLS FLIPPED!',
+    bothKennels:'BOTH KENNELS ×',
+    mirrorOff:'CONTROLS BACK!',
+    mirrorOffSub:'left is left, right is right',
+    mirrorBanner:'CONTROLS MIRRORED · BOTH KENNELS ×',
+    yum:'YUM +',
+    foodLost:' FOOD!',
+    kg:'10kg'
+  },
+  ru:{
+    logo:'КОСТОЧКИ',
+    tag1:'Лови кости в воздухе — неси в будку!',
+    tag2:'Любая будка = 10 очков за кость',
+    tag3:'Горячая ещё и кормит ×2…×5 — но бежать далеко',
+    tag4:'Череп бьёт вдвое, тухлая с мухой — обычно',
+    tag5:'Золотая — рывок · Каменная — тяжесть',
+    tag6:'Держи кнопки внизу · A/D на клавиатуре',
+    start:'ТАП / ПРОБЕЛ — СТАРТ',
+    best:'Рекорд: ',
+    perBone:' за кость',
+    over:'ГОЛОД',
+    score:'Счёт: ',
+    delivered:'Костей доставлено: ',
+    newBest:'НОВЫЙ РЕКОРД!',
+    again:'ЕЩЁ РАЗ',
+    orR:'или клавиша R',
+    shield:'ЩИТ',
+    shieldGet:'ЩИТ!',
+    streakLost:'СЕРИЯ ✕',
+    heavy:'ТЯЖЕСТЬ!',
+    zoom:'ЗУМ!',
+    fed:'СЫТ!',
+    vac:'ПЫЛЕСОС!',
+    mirrorOn:'КНОПКИ НАОБОРОТ!',
+    bothKennels:'ОБЕ БУДКИ ×',
+    mirrorOff:'КНОПКИ СВОИ!',
+    mirrorOffSub:'лево — влево, право — вправо',
+    mirrorBanner:'КНОПКИ ЗЕРКАЛЬНО · ОБЕ БУДКИ ×',
+    yum:'СЫТНО +',
+    foodLost:' ЕДЫ!',
+    kg:'10кг'
+  }
+};
+let lang=lsGet('lang','');
+if(lang!=='en'&&lang!=='ru'){
+  lang=/^ru\b/i.test(navigator.language||navigator.userLanguage||'en')?'ru':'en';
+}
+function T(k){ const d=STR[lang]; return (d&&d[k]!==undefined)?d[k]:STR.en[k]; }
+function setLang(v){ lang=v; lsSet('lang',v); document.documentElement.lang=v; }
+document.documentElement.lang=lang;
+
+/* ---------- канвас, размеры, dpr ---------- */
+const canvas=document.getElementById('game');
+const ctx=canvas.getContext('2d');
+/* ============================================================
+   ВИРТУАЛЬНОЕ ПОЛЕ. Игра всегда идёт в поле шириной ровно
+   VW игровых единиц с телефонными пропорциями — и на мониторе,
+   и на телефоне. Иначе на широком экране забег до будки длится
+   секунды (решение есть), а на узком будки почти вплотную
+   (решения нет) — то есть это была бы РАЗНАЯ игра.
+   Поле центрируется, по краям — тёмные поля.
+   ============================================================ */
+const VW=430;      // ширина поля в игровых единицах (константа!)
+const AR_MIN=0.44; // самый вытянутый допустимый экран (длинный телефон)
+const AR_MAX=0.60; // самый «квадратный» допустимый (шире — будут поля по бокам)
+let W=1,H=1,DPR=1,DS=1,groundY=1,KW=90,KH=85,kennelLX=50,kennelRX=350;
+let sky=null;                      // геометрия параллакс-города (считается по размеру)
+let rain=null;                     // пул капель (переиспользуются, не создаются в кадре)
+let stars=null;                    // звёзды (строятся один раз на раскладку)
+let milkyGrad=null, milkyH=0;      // кэш градиента млечного пути
+let shootT=5, shoot=null;          // таймер до падающей звезды и она сама
+let lastPaw=0;                     // на каком пути топнули в прошлый раз
+let DOG_S=1,BONE_S=1;            // отдельные масштабы собаки и костей
+let CTRL_H=120,PLAY_H=1;         // высота пульта и игрового поля над ним
+let SAFE_TOP=0,SAFE_BOT=0;       // чёлка и полоса жеста «домой» в ИГРОВЫХ единицах
+let RW=1,RH=1,SCALE=1,VX=0,VY=0; // реальный размер окна, масштаб и смещение поля
+
+function resize(){
+  DPR=clamp(window.devicePixelRatio||1,1,3);
+  RW=Math.max(1,window.innerWidth);
+  RH=Math.max(1,window.innerHeight);
+  const ar=clamp(RW/RH,AR_MIN,AR_MAX);   // пропорции поля — всегда телефонные
+  let bw=RW, bh=RW/ar;                    // вписываем поле в окно
+  if(bh>RH){ bh=RH; bw=RH*ar; }
+  VX=Math.round((RW-bw)/2); VY=Math.round((RH-bh)/2);
+  W=VW; H=Math.round(VW/ar);              // игровые единицы
+  SCALE=bw/W;                             // CSS-пикселей в одной игровой единице
+  canvas.width=Math.round(RW*DPR);
+  canvas.height=Math.round(RH*DPR);
+  /* чёлка: сколько её попадает на поле, в игровых единицах */
+  const probe=document.getElementById('safe');
+  const safeCss=probe?clamp(probe.getBoundingClientRect().height,0,80):0;
+  SAFE_TOP=Math.max(0,(safeCss-VY)/SCALE);
+  /* полоса жеста «домой» внизу iPhone: касания в ней ворует система,
+     поэтому кнопки поднимаем выше неё (иначе нажатие иногда не срабатывает) */
+  const probeB=document.getElementById('safeb');
+  const safeBCss=probeB?clamp(probeB.getBoundingClientRect().height,0,60):0;
+  const belowField=Math.max(0,RH-(VY+bh));            // сколько полосы уже вне поля
+  SAFE_BOT=Math.max(0,(safeBCss-belowField)/SCALE);
+  CTRL_H=clamp(H*CONFIG.ctrlFrac,CONFIG.ctrlMin,CONFIG.ctrlMax); // пульт внизу
+  PLAY_H=H-CTRL_H;                                               // игровое поле — только выше пульта
+  groundY=PLAY_H-Math.max(40,PLAY_H*0.07);
+  sky=null;                // размер сменился — геометрию города пересчитаем заново
+  stars=null;              // ...и звёздное небо тоже
+  KW=clamp(W*0.128,48,62); // будки МАЛЕНЬКИЕ и далёкие — между ними настоящая перебежка, как на мониторе
+  KH=KW*0.94;
+  kennelLX=KW*0.52+4;      // центр левой будки
+  kennelRX=W-KW*0.52-4;    // центр правой будки
+  DS=clamp(Math.min(W,H)/460,0.8,1.25); // базовый масштаб сцены
+  DOG_S=DS*CONFIG.dogScale;
+  BONE_S=DS*CONFIG.boneScale;
+}
+/* экранные координаты (палец/мышь) → игровые */
+function toGameX(x){ return (x-VX)/SCALE; }
+function toGameY(y){ return (y-VY)/SCALE; }
+resize();
+window.addEventListener('resize',resize);
+window.addEventListener('orientationchange',resize);
+
+/* ---------- звук: WebAudio, всё синтезируется ---------- */
+let AC=null, masterGain=null;
+let muted = lsGet('mute','0')==='1';
+function ensureAudio(){
+  if(!AC){
+    try{
+      const Ctor=window.AudioContext||window.webkitAudioContext;
+      if(Ctor){
+        AC=new Ctor();
+        masterGain=AC.createGain();
+        masterGain.gain.value=muted?0:1;
+        masterGain.connect(AC.destination);
+      }
+    }catch(e){ AC=null; }
+  }
+  if(AC&&AC.state==='suspended'){ AC.resume().catch(function(){}); }
+}
+function setMuted(m){
+  muted=m; lsSet('mute',m?'1':'0');
+  if(masterGain) masterGain.gain.value=m?0:1;
+  if(m){ vacHumStop(); }   // фоны не крутим впустую
+}
+function tone(freq,dur,type,vol,slideTo,delay){
+  if(!AC||muted) return;
+  try{
+    const t0=AC.currentTime+(delay||0);
+    const o=AC.createOscillator(), g=AC.createGain();
+    o.type=type||'sine';
+    o.frequency.setValueAtTime(Math.max(30,freq),t0);
+    if(slideTo) o.frequency.exponentialRampToValueAtTime(Math.max(30,slideTo),t0+dur);
+    g.gain.setValueAtTime(0.0001,t0);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.001,vol||0.2),t0+0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
+    o.connect(g); g.connect(masterGain);
+    o.start(t0); o.stop(t0+dur+0.05);
+  }catch(e){}
+}
+function noiseBurst(dur,vol,fFreq,delay){
+  if(!AC||muted) return;
+  try{
+    const t0=AC.currentTime+(delay||0);
+    const n=Math.max(1,Math.floor(AC.sampleRate*dur));
+    const buf=AC.createBuffer(1,n,AC.sampleRate);
+    const d=buf.getChannelData(0);
+    for(let i=0;i<n;i++) d[i]=(Math.random()*2-1)*(1-i/n);
+    const src=AC.createBufferSource(); src.buffer=buf;
+    const f=AC.createBiquadFilter(); f.type='lowpass'; f.frequency.value=fFreq||1200;
+    const g=AC.createGain();
+    g.gain.setValueAtTime(Math.max(0.001,vol||0.2),t0);
+    g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
+    src.connect(f); f.connect(g); g.connect(masterGain);
+    src.start(t0);
+  }catch(e){}
+}
+const SFX={
+  catch:function(){ noiseBurst(0.06,0.25,2600); tone(300,0.08,'square',0.16,180); tone(520,0.05,'square',0.09,420,0.035); }, // «хрум»
+  deliverCold:function(){ tone(660,0.10,'sine',0.20,880); tone(990,0.12,'sine',0.15,0,0.07); },
+  deliverHot:function(){ tone(660,0.09,'sine',0.20); tone(880,0.09,'sine',0.20,0,0.07); tone(1320,0.15,'sine',0.22,0,0.14); tone(1760,0.20,'triangle',0.11,0,0.21); },
+  thunk:function(delay){ noiseBurst(0.06,0.22,500,delay||0); tone(140,0.07,'sine',0.14,90,delay||0); },
+  shatter:function(){ noiseBurst(0.09,0.09,900); tone(220,0.10,'sine',0.07,120); }, // разочарованный щелчок
+  yelp:function(){ tone(700,0.09,'sawtooth',0.20,1400); tone(1300,0.14,'sawtooth',0.16,350,0.07); }, // визг
+  /* «ГАВ»: шумовой щелчок + тон, резко падающий вниз — так читается собачий лай */
+  bark:function(){
+    noiseBurst(0.05,0.11,1500);
+    tone(430,0.09,'sawtooth',0.20,190);
+    tone(250,0.12,'square',0.11,110,0.05);
+  },
+  /* топот лапы: очень тихий низкий шорох, иначе забивает всё остальное */
+  paw:function(){ noiseBurst(0.035,0.045,380); },
+  hotSwitch:function(){ tone(880,0.06,'triangle',0.09,1150); },
+  uiTap:function(){ tone(500,0.05,'square',0.09,700); },
+  gameOver:function(){ tone(440,0.25,'triangle',0.18,330); tone(330,0.30,'triangle',0.18,250,0.22); tone(220,0.60,'triangle',0.20,110,0.46); }
+};
+
+/* ---------- состояние игры ---------- */
+let state='start';                 // 'start' | 'play' | 'over'
+let score=0, delivered=0;
+let best=parseInt(lsGet('best4','0'),10)||0;
+let newBest=false;
+let hunger=CONFIG.hungerMax;
+let runTime=0;                     // игровое время забега (сек)
+let spawnT=0.9;
+let hotSide=Math.random()<0.5?-1:1;// -1 = левая будка горячая, 1 = правая
+let hotT=CONFIG.hotPeriod;
+let hotMult=3;                     // текущий множитель еды горячей будки
+let carrying=false;                // несём ли кость в зубах
+let sinceEdible=0, poisonStreak=0; // анти-засуха: время без съедобных / ядовитые подряд
+let timeScale=1;
+let acc=0, last=performance.now(), realTime=0;
+/* таймеры на РЕАЛЬНОМ времени — не зависят от timeScale, не могут заклинить */
+let stunT=0, hitStop=0, shakeT=0, shakeAmp=0, hungerFlash=0, overDelay=0;
+let speedT=0;                      // ⚡ остаток рывка (реальное время)
+let slowT=0;                       // 🪨 остаток тяжести (реальное время)
+let auraT=0, vacT=0, invT=0;       // 🛡 щит / 🌀 пылесос / ⇄ инверсия (реальное время)
+let invEndT=0;                     // вспышка в момент, когда инверсия кончилась
+let combo=0;                       // сколько чистых доставок подряд
+let scorePunch=0, hotPunch=0;
+const kennelSquash={'-1':0,'1':0};
+
+const dog={x:200,y:0,dir:1,vx:0,squash:0,step:0};
+dog.x=W/2; dog.y=groundY;
+
+let padDir=0, keyL=false, keyR=false;  // padDir: −1 влево, +1 вправо, 0 стоим
+const touchSeq=new Map(); let seqCounter=0; // порядок нажатия пальцев (для «последний главный»)
+let bones=[];       // падающие кости {x,y,rot,vr,poison,wob,dead}
+let fxBones=[];     // декоративные кости (дуга в будку / кувырок при яде)
+let particles=[];   // частицы
+let floaters=[];    // всплывающий текст
+const P_MAX=300;    // лимит частиц
+
+function curPoisonRatio(){
+  if(runTime<=CONFIG.poisonRampTime) return lerp(CONFIG.poisonStart,CONFIG.poisonMax,runTime/CONFIG.poisonRampTime);
+  return lerp(CONFIG.poisonMax,CONFIG.poisonLateMax,clamp((runTime-CONFIG.poisonRampTime)/CONFIG.poisonLateRamp,0,1)); // крещендо
+}
+/* целевой поток еды = как на первой секунде: (1−poisonStart)/spawnInterval */
+function targetEdibleRate(){ return (1-CONFIG.poisonStart)/CONFIG.spawnInterval; }
+function curHotPeriod(){
+  if(runTime<=CONFIG.hotLateFrom) return CONFIG.hotPeriod;
+  return lerp(CONFIG.hotPeriod,CONFIG.hotPeriodMin,clamp((runTime-CONFIG.hotLateFrom)/CONFIG.hotLateRamp,0,1));
+}
+/* доля костей, съеденных особыми видами — они не еда, спавн их компенсирует */
+function curDeliveryPts(){ return Math.min(CONFIG.pointsCold+combo*CONFIG.comboStep,CONFIG.comboMax); }
+function curInvertChance(){ return runTime<CONFIG.invertFrom?0:CONFIG.invertChance; }
+function curAuraChance(){ return runTime<CONFIG.auraFrom?0:CONFIG.auraChance; }
+function curVacChance(){ return runTime<CONFIG.vacFrom?0:CONFIG.vacChance; }
+function curMagicChance(){ return hunger<CONFIG.magicNeed?CONFIG.magicChance:0; }
+function specialShare(){ return curMagicChance()+curAuraChance()+curVacChance()+curInvertChance(); }
+function curSpawnInterval(){
+  const edible=(1-specialShare())*(1-curPoisonRatio())*(1-curSpeedChance()-curSlowChance());
+  return Math.max(CONFIG.spawnIntervalMin, edible/targetEdibleRate());
+}
+function curSpeedChance(){ return CONFIG.speedBoneEnabled?lerp(CONFIG.speedChanceStart,CONFIG.speedChanceMax,clamp(runTime/CONFIG.speedRampTime,0,1)):0; }
+/* розыгрыш множителя по весам; среднее = 3.0, см. CONFIG */
+function curHotChances(){
+  const t=clamp((runTime-CONFIG.hotChancesFrom)/CONFIG.hotChancesRamp,0,1), out=[];
+  for(let i=0;i<CONFIG.hotMultChances.length;i++) out.push(lerp(CONFIG.hotMultChances[i],CONFIG.hotChancesLate[i],t));
+  return out;
+}
+function rollHotMult(){
+  const w=curHotChances(), r=Math.random(); let acc=0;
+  for(let i=0;i<CONFIG.hotMults.length;i++){
+    acc+=w[i];
+    if(r<acc) return CONFIG.hotMults[i];
+  }
+  return CONFIG.hotMults[CONFIG.hotMults.length-1];
+}
+function curSlowChance(){ return runTime<CONFIG.slowStart?0:lerp(0,CONFIG.slowChanceMax,clamp((runTime-CONFIG.slowStart)/CONFIG.slowRampTime,0,1)); }
+/* положение на общей дуге: 0 в начале партии, 1 через arcTime секунд */
+function arcT(){ return clamp(runTime/CONFIG.arcTime,0,1); }
+function curPoisonHit(){ return lerp(CONFIG.poisonHungerHit,CONFIG.poisonHitFloor,arcT()); }
+function curSneakShare(){ return runTime<CONFIG.sneakStart?0:lerp(0,CONFIG.sneakMax,clamp((runTime-CONFIG.sneakStart)/CONFIG.sneakRampTime,0,1)); }
+function curDrain(){
+  if(runTime<CONFIG.drainWarmup) return lerp(CONFIG.hungerDrainEase,CONFIG.hungerDrain,runTime/CONFIG.drainWarmup);
+  const t=runTime-CONFIG.drainWarmup;
+  if(t<=CONFIG.drainRampTime) return lerp(CONFIG.hungerDrain,CONFIG.hungerDrainMax,t/CONFIG.drainRampTime);
+  return Math.min(CONFIG.drainCap,CONFIG.hungerDrainMax+CONFIG.drainLate*(t-CONFIG.drainRampTime));
+}
+function curFall(){ return lerp(CONFIG.boneFallSpeed,CONFIG.boneFallSpeedMax,clamp(runTime/CONFIG.fallRampTime,0,1))*H; }
+/* разгон ТОЛЬКО плохих костей (яд и камни) */
+function curBadFall(){
+  const base=lerp(CONFIG.badFallStart,CONFIG.badFallMax,arcT());
+  if(runTime<=CONFIG.arcTime) return base;
+  const rate=(CONFIG.badFallMax-CONFIG.badFallStart)/CONFIG.arcTime/CONFIG.badFallLateDiv;
+  return base+rate*(runTime-CONFIG.arcTime);
+}
+function mouthPos(){ return {x:dog.x+37*DOG_S*dog.dir, y:groundY-34*DOG_S}; }
+function muteRect(){ return {x:W-46,y:10+SAFE_TOP,w:36,h:36}; }
+/* Кнопка языка — ТОЛЬКО на стартовом экране, и внизу по центру. В правом
+   верхнем углу она садилась на шкалу голода, а в бою это лишняя мишень. */
+function langRect(){ const w=Math.min(150,W*0.42); return {x:(W-w)/2,y:PLAY_H*0.845-19,w:w,h:38}; }
+function langVisible(){ return state==='start'; }
+function btnRect(){ const w=Math.min(240,W*0.62),h=56; return {x:(W-w)/2,y:PLAY_H*0.60,w:w,h:h}; }
+/* Кнопки пульта. ВАЖНО: зона нажатия — ровно половина панели без щелей и полей,
+   иначе палец, скользящий с кнопки на кнопку, проваливается в «мёртвую» зону
+   и собака встаёт. Рисуем со скруглением внутрь, но ловим всю половину. */
+function inPad(y){ return y>=PLAY_H-10; }
+/* Направление по положению пальца: вся нижняя панель, левая половина / правая.
+   Ни щелей, ни отступов — палец не может «провалиться» между кнопками. */
+function padDirAt(x,y){ return inPad(y)?(x<W/2?-1:1):0; }
+/* видимая кнопка (нажимается при этом ВСЯ половина панели, см. padDirAt).
+   Снизу оставляем полосу жеста «домой» — туда палец класть нельзя. */
+function padRect(side){
+  const pad=8, gap=10, y=PLAY_H+pad;
+  const h=Math.max(44,CTRL_H-pad*2-SAFE_BOT), w=(W-pad*2-gap)/2;
+  return {x:side<0?pad:pad+w+gap, y:y, w:w, h:h};
+}
+
+function addP(p){ particles.push(p); if(particles.length>P_MAX) particles.splice(0,particles.length-P_MAX); }
+function addFloater(x,y,t,color,size){ floaters.push({x:x,y:y,txt:t,color:color,size:size,life:0.9,max:0.9}); }
+
+/* ---------- ввод: слушатели регистрируются РОВНО один раз ---------- */
+/* Тапы по интерфейсу (звук, старт, «ещё раз»). Направление сюда НЕ попадает —
+   оно всегда пересчитывается из живого списка касаний, см. syncTouches. */
+function onTap(x,y){
+  ensureAudio();
+  const m=muteRect();
+  if(x>=m.x&&x<=m.x+m.w&&y>=m.y&&y<=m.y+m.h){ setMuted(!muted); SFX.uiTap(); return; }
+  if(langVisible()){
+    const g=langRect();
+    if(x>=g.x&&x<=g.x+g.w&&y>=g.y&&y<=g.y+g.h){ setLang(lang==='ru'?'en':'ru'); SFX.uiTap(); return; }
+  }
+  if(state==='start'){ startGame(); return; }
+  if(state==='over'&&overDelay<=0){
+    const b=btnRect();
+    if(x>=b.x&&x<=b.x+b.w&&y>=b.y&&y<=b.y+b.h) startGame();
+  }
+}
+function clearTouches(){ touchSeq.clear(); padDir=0; }
+
+/* ============================================================
+   ВВОД. На сенсоре берём ТОЛЬКО touch-события и на каждом из них
+   перечитываем e.touches — полный список живых касаний. Это снимок
+   правды: устаревшей записи в нём не бывает. Прошлый вариант вёл учёт
+   по отдельным событиям, и если «отпускание» терялось (палец ушёл за
+   рамку, система перехватила жест), направление залипало навсегда.
+   ============================================================ */
+/* ⚠️ РАНЬШЕ ЗДЕСЬ БЫЛ ВЫБОР ОДНОЙ ВЕТКИ: если браузер сообщал про поддержку
+   касаний, мышь не слушалась ВООБЩЕ. На ноутбуках с сенсорным экраном (и на
+   части обычных Windows-ноутов, где maxTouchPoints>0 без экрана) игра
+   переставала реагировать на мышь целиком — не работали ни кнопки, ни старт.
+   Теперь слушаем ОБА ввода одновременно: касания идут своей веткой, мышь и
+   перо — своей, а pointer-события от пальцев отбрасываются, чтобы касание
+   не обработалось дважды. */
+const HAS_TOUCH=('ontouchstart' in window)||(navigator.maxTouchPoints>0);
+if(HAS_TOUCH){
+  /* СЕРДЦЕ ФИКСА: направление НЕ накапливается по событиям, а каждый раз
+     пересчитывается из e.touches — полного списка живых касаний. Устаревшей
+     записи там быть не может: нет пальца в списке — нет нажатия. Именно
+     ручной учёт по отдельным событиям и залипал, когда «отпускание» терялось. */
+  const syncTouches=function(e){
+    e.preventDefault();
+    const live=e.touches;
+    /* 1) выкидываем из памяти порядка всё, чего уже нет на экране */
+    const alive={};
+    for(let i=0;i<live.length;i++) alive[live[i].identifier]=1;
+    for(const id of Array.from(touchSeq.keys())) if(!alive[id]) touchSeq.delete(id);
+    /* 2) заново собираем направление; побеждает палец, нажатый ПОСЛЕДНИМ */
+    let bestSeq=-1, dir=0;
+    for(let i=0;i<live.length;i++){
+      const t=live[i];
+      const d=padDirAt(toGameX(t.clientX),toGameY(t.clientY));
+      if(d===0) continue;
+      if(!touchSeq.has(t.identifier)) touchSeq.set(t.identifier,++seqCounter);
+      const s=touchSeq.get(t.identifier);
+      if(s>bestSeq){ bestSeq=s; dir=d; }
+    }
+    padDir=dir; // список пуст → 0, гарантированная остановка
+  };
+  canvas.addEventListener('touchstart',function(e){
+    for(let i=0;i<e.changedTouches.length;i++){
+      const t=e.changedTouches[i];
+      onTap(toGameX(t.clientX),toGameY(t.clientY));
+    }
+    syncTouches(e);
+  },{passive:false});
+  canvas.addEventListener('touchmove',syncTouches,{passive:false});
+  canvas.addEventListener('touchend',syncTouches,{passive:false});
+  canvas.addEventListener('touchcancel',syncTouches,{passive:false});
+}
+/* МЫШЬ И ПЕРО — работают ВСЕГДА, параллельно с касаниями.
+   Направление живёт, только пока зажата кнопка. */
+{
+  let mouseDown=false;
+  const fromTouch=function(e){ return e.pointerType==='touch'; };  // палец уже обработан выше
+  const upd=function(e){
+    if(!mouseDown){ padDir=0; return; }
+    padDir=padDirAt(toGameX(e.clientX),toGameY(e.clientY));
+  };
+  if(window.PointerEvent){
+    canvas.addEventListener('pointerdown',function(e){
+      if(fromTouch(e)) return;
+      e.preventDefault(); mouseDown=true;
+      onTap(toGameX(e.clientX),toGameY(e.clientY));
+      upd(e);
+    },{passive:false});
+    window.addEventListener('pointermove',function(e){
+      if(fromTouch(e)) return;
+      if(e.buttons===0) mouseDown=false;   // кнопку отпустили мимо нас — не залипаем
+      upd(e);
+    },{passive:false});
+    const up=function(e){ if(e&&fromTouch(e)) return; mouseDown=false; padDir=0; };
+    window.addEventListener('pointerup',up,{passive:false});
+    window.addEventListener('pointercancel',up,{passive:false});
+    window.addEventListener('blur',function(){ mouseDown=false; padDir=0; });
+  }else{
+    /* очень старые браузеры без Pointer Events — обычная мышь */
+    canvas.addEventListener('mousedown',function(e){
+      e.preventDefault(); mouseDown=true;
+      onTap(toGameX(e.clientX),toGameY(e.clientY));
+      upd(e);
+    },{passive:false});
+    window.addEventListener('mousemove',function(e){
+      if(e.buttons===0) mouseDown=false;
+      upd(e);
+    },{passive:false});
+    const up=function(){ mouseDown=false; padDir=0; };
+    window.addEventListener('mouseup',up);
+    window.addEventListener('blur',up);
+  }
+}
+window.addEventListener('contextmenu',function(e){ e.preventDefault(); });
+document.addEventListener('gesturestart',function(e){ e.preventDefault(); },{passive:false});
+
+window.addEventListener('keydown',function(e){
+  const c=e.code;
+  if(c==='Space'||c==='ArrowLeft'||c==='ArrowRight') e.preventDefault();
+  if(e.repeat) return;
+  ensureAudio();
+  if(c==='ArrowLeft'||c==='KeyA'){ keyL=true; }
+  else if(c==='ArrowRight'||c==='KeyD'){ keyR=true; }
+  else if(c==='Space'){
+    if(state==='start') startGame();
+    else if(state==='over'&&overDelay<=0) startGame();
+  }
+  else if(c==='KeyR'){ if(state==='play'||state==='over') startGame(); }
+  else if(c==='KeyM'){ setMuted(!muted); }
+  else if(c==='KeyL'){ setLang(lang==='ru'?'en':'ru'); }
+});
+window.addEventListener('keyup',function(e){
+  if(e.code==='ArrowLeft'||e.code==='KeyA') keyL=false;
+  if(e.code==='ArrowRight'||e.code==='KeyD') keyR=false;
+});
+window.addEventListener('blur',function(){ keyL=false; keyR=false; clearTouches(); });
+document.addEventListener('visibilitychange',function(){ last=performance.now(); acc=0; });
+
+/* ---------- запуск / сброс / конец забега ---------- */
+function resetRun(){
+  score=0; delivered=0; newBest=false;
+  hunger=CONFIG.hungerMax;
+  runTime=0; spawnT=0.9;
+  hotSide=Math.random()<0.5?-1:1;
+  hotMult=rollHotMult();
+  hotT=CONFIG.hotPeriod;
+  carrying=false; speedT=0; slowT=0;
+  auraT=0; vacT=0; invT=0; invEndT=0; combo=0; vacHumStop();
+  shootT=rand(CONFIG.shootMin,CONFIG.shootMax); shoot=null;
+  sinceEdible=0; poisonStreak=0;
+  stunT=0; hitStop=0; shakeT=0; shakeAmp=0; hungerFlash=0;
+  scorePunch=0; hotPunch=0;
+  kennelSquash['-1']=0; kennelSquash['1']=0;
+  bones.length=0; fxBones.length=0; particles.length=0; floaters.length=0;
+  dog.x=W/2; dog.dir=1; dog.vx=0; dog.squash=0; dog.step=0; lastPaw=0;
+  clearTouches(); keyL=false; keyR=false;
+  timeScale=1; acc=0;
+}
+function startGame(){ resetRun(); state='play'; SFX.uiTap(); SFX.bark(); }
+function gameOver(){
+  if(state!=='play') return;
+  state='over';
+  overDelay=0.6;               // защита от случайного тапа сквозь экран смерти
+  clearTouches(); keyL=false; keyR=false;
+  newBest=score>best;
+  if(newBest){ best=score; lsSet('best4',best); } // рекорд пишется РОВНО один раз
+  shakeT=0.3; shakeAmp=5;
+  vacT=0; auraT=0; invT=0; invEndT=0; vacHumStop();
+  SFX.gameOver();
+}
+
+/* Съедобна обычная кость, вредна ядовитая — ВСЕГДА: зеркало правил еды не трогает.
+   Камень остаётся камнем, золотая и волшебная остаются хорошими. */
+function isEdible(b){ return b.kind==='norm' && !b.poison; }
+function isHarmful(b){ return b.kind==='norm' && b.poison; }
+/* пока идёт зеркало, горячие ОБЕ будки и обе по ×4 */
+function hotAt(side){ return invT>0 || side===hotSide; }
+function curHotMult(){ return invT>0?CONFIG.invertHotMult:hotMult; }
+
+/* ---------- игровые события ---------- */
+function catchBone(b){
+  carrying=true;
+  dog.squash=1;
+  hitStop=Math.max(hitStop,0.03);
+  const m=mouthPos();
+  for(let i=0;i<8;i++) addP({kind:'spark',x:m.x,y:m.y,vx:rand(-90,90),vy:rand(-130,10),g:320,life:rand(0.25,0.45),max:0.45,size:rand(1.5,3),color:'#fff6dd'});
+  SFX.catch();
+}
+function auraBlock(b){
+  hitStop=Math.max(hitStop,0.04); shakeT=0.12; shakeAmp=3;
+  addFloater(dog.x,groundY-95*DOG_S,T('shield'),'#7fd8ff',20);
+  for(let i=0;i<14;i++) addP({kind:'spark',x:b.x,y:b.y,vx:rand(-150,150),vy:rand(-150,60),g:300,life:rand(0.2,0.45),max:0.45,size:rand(1.5,3),color:'#7fd8ff'});
+  SFX.thunk(0);
+}
+function slowPickup(){
+  slowT=CONFIG.slowTime; speedT=0; // тяжесть снимает рывок
+  if(combo>=2) addFloater(dog.x,groundY-128*DOG_S,T('streakLost'),'#c9c2b4',18);
+  combo=0;                         // камень — тоже ошибка
+  dog.squash=1;
+  addFloater(dog.x,groundY-95*DOG_S,T('heavy'),'#aab2bf',24);
+  for(let i=0;i<10;i++) addP({kind:'puff',x:dog.x+rand(-14,14),y:groundY-rand(6,30)*DOG_S,vx:rand(-40,40),vy:rand(-30,10),g:60,life:rand(0.3,0.6),max:0.6,size:rand(3,6),color:'#9aa3b0'});
+  SFX.thunk(0);
+}
+function speedPickup(){
+  speedT=CONFIG.speedBoostTime; slowT=0; // рывок сбрасывает тяжесть
+  dog.squash=1;
+  addFloater(dog.x,groundY-95*DOG_S,T('zoom'),'#ffd94d',26);
+  for(let i=0;i<12;i++) addP({kind:'spark',x:dog.x,y:groundY-40*DOG_S,vx:rand(-160,160),vy:rand(-200,-30),g:380,life:rand(0.3,0.55),max:0.55,size:rand(2,3.5),color:'#ffd94d'});
+  SFX.catch(); SFX.hotSwitch();   // яркий «вжух» из двух готовых звуков
+}
+/* ---------- НЕПРЕРЫВНЫЕ ФОНЫ ----------
+   Дождь и дрон напряжения — не разовые звуки, а живые источники: висят всё
+   время игры и меняют громкость. Оба идут через masterGain, чтобы кнопка
+   звука их глушила вместе со всем остальным. */
+let noiseBuf=null;
+function whiteLoop(){            // один буфер шума на всё, крутится по кругу
+  if(!AC) return null;
+  if(!noiseBuf){
+    const n=Math.floor(AC.sampleRate*2);
+    noiseBuf=AC.createBuffer(1,n,AC.sampleRate);
+    const d=noiseBuf.getChannelData(0);
+    for(let i=0;i<n;i++) d[i]=Math.random()*2-1;
+  }
+  const src=AC.createBufferSource();
+  src.buffer=noiseBuf; src.loop=true;
+  return src;
+}
+/* Дождя больше нет — ночь тихая. Из непрерывных фонов остался только
+   гул пылесоса, он живёт своей жизнью в vacHum. */
+function updateAmbience(){}
+let vacHum=null;
+function vacHumStart(){
+  if(!AC||muted||vacHum) return;
+  try{
+    const g=AC.createGain(); g.gain.value=0.0001;
+    const o=AC.createOscillator();  o.type='sawtooth'; o.frequency.value=92;
+    const o2=AC.createOscillator(); o2.type='square';  o2.frequency.value=138;
+    const f=AC.createBiquadFilter(); f.type='lowpass'; f.frequency.value=850; f.Q.value=3;
+    o.connect(f); o2.connect(f); f.connect(g); g.connect(masterGain||AC.destination);
+    g.gain.linearRampToValueAtTime(0.07,AC.currentTime+0.12);
+    o.start(); o2.start();
+    vacHum={o:o,o2:o2,g:g};
+  }catch(e){ vacHum=null; }
+}
+function vacHumStop(){
+  if(!vacHum) return;
+  const v=vacHum; vacHum=null;
+  try{
+    v.g.gain.linearRampToValueAtTime(0.0001,AC.currentTime+0.18);
+    v.o.stop(AC.currentTime+0.22); v.o2.stop(AC.currentTime+0.22);
+  }catch(e){}
+}
+function magicPickup(){
+  hunger=CONFIG.hungerMax;               // сразу до краёв, сколько бы ни было
+  dog.squash=1;
+  addFloater(dog.x,groundY-95*DOG_S,T('fed'),'#ff9ae0',32);
+  const cols=['#ff9ae0','#9ae0ff','#ffe98a','#b8ff9a'];
+  for(let i=0;i<26;i++) addP({kind:'spark',x:dog.x,y:groundY-40*DOG_S,vx:rand(-210,210),vy:rand(-260,-40),g:340,life:rand(0.4,0.8),max:0.8,size:rand(2,4),color:cols[i%cols.length]});
+  SFX.deliverHot(); SFX.hotSwitch();
+}
+function auraPickup(){
+  auraT=CONFIG.auraTime;
+  dog.squash=1;
+  addFloater(dog.x,groundY-95*DOG_S,T('shieldGet'),'#7fd8ff',28);
+  for(let i=0;i<18;i++) addP({kind:'spark',x:dog.x,y:groundY-40*DOG_S,vx:rand(-170,170),vy:rand(-210,-20),g:330,life:rand(0.35,0.7),max:0.7,size:rand(2,3.5),color:i%2?'#7fd8ff':'#e8faff'});
+  SFX.deliverHot();
+}
+function vacPickup(){
+  vacT=CONFIG.vacTime;
+  vacHumStart();
+  dog.squash=1;
+  addFloater(dog.x,groundY-95*DOG_S,T('vac'),'#b98cff',28);
+  for(let i=0;i<18;i++) addP({kind:'spark',x:dog.x,y:groundY-40*DOG_S,vx:rand(-170,170),vy:rand(-210,-20),g:330,life:rand(0.35,0.7),max:0.7,size:rand(2,3.5),color:i%2?'#b98cff':'#e6dcff'});
+  SFX.hotSwitch();
+}
+/* инверсия кончилась — это должно быть видно, иначе игрок продолжит ловить яд */
+function invertEnded(){
+  invT=0; invEndT=CONFIG.invEndFlash;
+  shakeT=0.28; shakeAmp=6; hitStop=Math.max(hitStop,0.05);
+  for(let i=0;i<26;i++) addP({kind:'spark',x:rand(0,W),y:rand(PLAY_H*0.2,PLAY_H*0.7),vx:rand(-60,60),vy:rand(-90,20),g:220,life:rand(0.3,0.6),max:0.6,size:rand(2,4),color:'#f2ead8'});
+  SFX.deliverCold(); SFX.thunk(0);
+}
+function invertPickup(){
+  invT=CONFIG.invertTime;
+  dog.squash=1; shakeT=0.25; shakeAmp=5;
+  hitStop=Math.max(hitStop,0.12);   // кадр замирает: собака не должна развернуться раньше, чем игрок это увидел
+  addFloater(dog.x,groundY-92*DOG_S,T('mirrorOn'),'#ffffff',26);
+  addFloater(dog.x,groundY-168*DOG_S,T('bothKennels')+CONFIG.invertHotMult,'#ffd94d',21);
+  for(let i=0;i<22;i++) addP({kind:'spark',x:dog.x,y:groundY-40*DOG_S,vx:rand(-200,200),vy:rand(-240,-30),g:330,life:rand(0.35,0.75),max:0.75,size:rand(2,4),color:i%2?'#ffffff':'#1b1b1b'});
+  SFX.deliverHot(); SFX.thunk(0);
+}
+/* пылесос засчитывает кость как доставку в обычную будку, пасть при этом свободна */
+function vacSwallow(){
+  score+=curDeliveryPts(); delivered++; combo++;   // всосанная — тоже чистая доставка
+  /* сытость как с горячей будки ×2 (16), а не как с обычной: пылесос редкий,
+     пусть кормит по-настоящему */
+  hunger=Math.min(CONFIG.hungerMax,hunger+CONFIG.hungerRefill*CONFIG.hotMults[0]);
+  scorePunch=1; dog.squash=1;
+  const m=mouthPos();
+  for(let i=0;i<6;i++) addP({kind:'spark',x:m.x,y:m.y,vx:rand(-70,70),vy:rand(-90,10),g:300,life:rand(0.2,0.35),max:0.35,size:rand(1.5,3),color:'#e6dcff'});
+  SFX.catch();
+}
+function deliverBone(side){
+  carrying=false;
+  const hot=hotAt(side);            // во время зеркала горячие обе
+  const hm=curHotMult();
+  const pts=curDeliveryPts();
+  score+=pts; delivered++; combo++;
+  if(combo>0&&combo%5===0) SFX.bark();   // серия крепнет — собака довольна
+  /* обычная будка = очко и мало еды; горячая = еда ×(2…5) и НИ одного очка */
+  const food=CONFIG.hungerRefill*(hot?hm:1);
+  hunger=Math.min(CONFIG.hungerMax,hunger+food);
+  scorePunch=1;
+  const cx=(side===-1)?kennelLX:kennelRX;
+  const m=mouthPos();
+  fxBones.push({mode:'arc',t:0,dur:0.30,x0:m.x,y0:m.y,x1:cx,y1:groundY-KH*0.72,rot:0,vr:14,side:side});
+  addFloater(cx,groundY-KH-30,'+'+pts,hot?'#ffd94d':'#f2ead8',hot?30:26);
+  if(hot) addFloater(cx,groundY-KH-64,T('yum')+Math.round(food),'#8fe06a',22);
+  const n=hot?16:7;
+  for(let i=0;i<n;i++) addP({kind:'coin',x:cx,y:groundY-KH*0.6,vx:rand(-140,140),vy:rand(-260,-50),g:520,life:rand(0.35,0.8),max:0.8,size:rand(2.2,4.5),color:(hot&&Math.random()<0.5)?'#ff9f2e':'#ffcf4d'});
+  if(hot){
+    hitStop=Math.max(hitStop,0.05); SFX.deliverHot();
+    /* доставка в иксы — маленький праздник: конфетти над будкой и прыгающий множитель */
+    shakeT=Math.max(shakeT,0.16); shakeAmp=Math.max(shakeAmp,3);
+    addFloater(cx,groundY-KH-58,'×'+hm+'!','#ffd94d',32);
+    const CC=['#ffd94d','#ff8a3d','#8fe06a','#7fd8ff','#ff9ae0'];
+    for(let i=0;i<24;i++) addP({kind:'spark',x:cx+rand(-KW*0.45,KW*0.45),y:groundY-KH*0.95,vx:rand(-150,150),vy:rand(-280,-90),g:430,life:rand(0.45,0.85),max:0.85,size:rand(2,4),color:CC[i%CC.length]});
+  }
+  else SFX.deliverCold();
+  SFX.thunk(0.26); // стук кости о будку — когда дуга долетит
+}
+function poisonHit(sly){
+  stunT=CONFIG.stunTime;         // реальное время
+  shakeT=sly?0.25:0.34; shakeAmp=sly?7:10;
+  hungerFlash=0.6;
+  hitStop=Math.max(hitStop,sly?0.08:0.12);
+  /* яд бьёт по сытости и дорожает со временем; ЯВНЫЙ — вдвое больнее */
+  const hit=curPoisonHit()*(sly?1:CONFIG.obviousHitMult);
+  hunger=Math.max(0,hunger-hit);
+  if(combo>=2) addFloater(dog.x,groundY-128*DOG_S,T('streakLost'),'#c9c2b4',18);
+  combo=0;                             // удар обнуляет серию чистых доставок
+  addFloater(dog.x,groundY-70*DOG_S,'−'+Math.round(hit)+T('foodLost'),'#ff6b5e',sly?18:23);
+  for(let i=0;i<14;i++) addP({kind:'spark',x:dog.x,y:groundY-30*DOG_S,vx:rand(-150,150),vy:rand(-220,-20),g:420,life:rand(0.3,0.6),max:0.6,size:rand(2,4),color:Math.random()<0.5?'#8fd438':'#b06fd8'});
+  if(carrying){
+    carrying=false; // несомая кость улетает и ТЕРЯЕТСЯ (не ловится снова)
+    const m=mouthPos();
+    fxBones.push({mode:'tumble',x:m.x,y:m.y,vx:-dog.dir*rand(160,260),vy:rand(-380,-280),rot:0,vr:rand(-11,11),life:1.3});
+  }
+  speedT=0; // яд снимает рывок — иначе оглушение при ускорении почти не чувствуется
+  SFX.yelp();
+}
+function shatterBone(b){
+  for(let i=0;i<6;i++) addP({kind:'puff',x:b.x+rand(-8,8),y:groundY-6,vx:rand(-30,30),vy:rand(-50,-10),g:-20,life:rand(0.3,0.6),max:0.6,size:rand(3,7),color:b.poison?'#6f9c3a':'#a99c85'});
+  for(let i=0;i<4;i++) addP({kind:'shard',x:b.x,y:groundY-8,vx:rand(-90,90),vy:rand(-170,-60),g:620,life:rand(0.25,0.5),max:0.5,size:rand(2,4),color:b.poison?'#7ec832':'#e9dfc8',rot:rand(0,TAU),vrot:rand(-12,12)});
+  SFX.shatter();
+}
+
+/* ---------- физика: фиксированный шаг 120 Гц ---------- */
+function step(dt){
+  runTime+=dt;
+  /* голод */
+  hunger-=curDrain()*dt;
+  if(hunger<=0){ hunger=0; gameOver(); return; }
+  /* горячая будка; во время зеркала горячие ОБЕ, и таймер стоит —
+     иначе после зеркала будка окажется не той, которую игрок запомнил */
+  if(invT<=0) hotT-=dt;
+  if(hotT<=0&&invT<=0){
+    /* сторона СЛУЧАЙНА (может остаться), множитель перевыбирается ВСЕГДА —
+       предсказать «теперь точно с другой стороны» больше нельзя */
+    if(Math.random()>=CONFIG.hotStayChance) hotSide=-hotSide;
+    hotMult=rollHotMult();
+    hotT+=curHotPeriod(); hotPunch=1; SFX.hotSwitch();
+  }
+  /* спавн костей */
+  sinceEdible+=dt;
+  spawnT-=dt;
+  if(spawnT<=0){
+    spawnT=curSpawnInterval()+rand(-CONFIG.spawnJitter,CONFIG.spawnJitter);
+    const m=Math.max(40,KW*0.8); // не роняем кости прямо на будки
+    /* АНТИ-ЗАСУХА: игрок не должен умирать без шанса — НАСТОЯЩАЯ еда обязана падать */
+    const forceFood=sinceEdible>CONFIG.edibleGuarantee;
+    /* ОДИН розыгрыш на все особые кости — доли честные, от ВСЕХ костей.
+       Волшебная кормит, поэтому засуха её не отменяет; три прикола — отменяет. */
+    let special=null;
+    { const r0=Math.random(); let a=curMagicChance();
+      if(r0<a) special='magic';
+      else if(!forceFood){
+        a+=curAuraChance();   if(r0<a) special='aura';
+        else { a+=curVacChance(); if(r0<a) special='vac';
+        else { a+=curInvertChance(); if(r0<a) special='invert'; } }
+      } }
+    const magic=(special==='magic');
+    let poison=!special&&Math.random()<curPoisonRatio();
+    if(forceFood) poison=false;
+    if(poisonStreak>=2) poison=false;      // не больше двух ядовитых подряд
+    let kind=special||'norm', sly=false;
+    if(poison){
+      poisonStreak++;
+      sly=Math.random()<curSneakShare();   // замаскированная — почти как обычная
+    }else{
+      poisonStreak=0;
+      if(!special){
+        const r=Math.random(), sp=curSpeedChance(), sl=curSlowChance();
+        if(!forceFood&&r<sp) kind='speed';           // рывок и камень НЕ считаются едой,
+        else if(!forceFood&&r<sp+sl) kind='slow';    // при засухе их не подсовываем
+      }
+      if(kind==='norm'||kind==='magic') sinceEdible=0;
+    }
+    /* РАЗВОДИМ ТРАЕКТОРИИ. Плохая кость не должна падать вплотную по следу
+       хорошей: тогда поймать еду и увернуться физически невозможно, и это
+       читается как несправедливость. Требуем зазор по горизонтали между
+       хорошей и плохой, пока обе в верхней части экрана — уворот остаётся
+       обязательным, но выполнимым. */
+    const bad=poison||kind==='slow';
+    let bx=rand(m,W-m), bestGap=-1;
+    for(let a=0;a<10;a++){
+      const cand=(a===0)?bx:rand(m,W-m);
+      let gap=1e9;
+      for(const o of bones){
+        if(o.dead||o.y>groundY*CONFIG.sepBandFrac) continue;   // нижние уже не мешают
+        const oBad=o.poison||o.kind==='slow';
+        if(oBad===bad) continue;                               // важен только конфликт «еда ↔ опасность»
+        gap=Math.min(gap,Math.abs(cand-o.x));
+      }
+      if(gap>bestGap){ bestGap=gap; bx=cand; }
+      if(gap>=CONFIG.minSepX) break;                           // зазора достаточно
+    }
+    bones.push({x:bx,y:-26,rot:rand(0,TAU),vr:rand(-2.5,2.5),poison:poison,sly:sly,kind:kind,wob:rand(0,TAU),dead:false});
+  }
+  /* собака */
+  const stunned=stunT>0;
+  const boosted=speedT>0, heavy=slowT>0; // ⚡ рывок / 🪨 тяжесть
+  let capBase=carrying?(boosted?CONFIG.dogSpeedEmpty:CONFIG.dogSpeedCarry):CONFIG.dogSpeedEmpty*(boosted?1.15:1);
+  if(heavy) capBase*=CONFIG.slowFactor;
+  const cap=capBase*W*dt;
+  if(!stunned){
+    /* держишь кнопку/клавишу — бежит; отпустил — стоп. Клавиатура главнее пульта. */
+    let dir=0;
+    if(keyL!==keyR) dir=keyR?1:-1;
+    else dir=padDir;
+    if(invT>0) dir=-dir;      // ⇄ зеркало: кнопка ведёт в противоположную сторону
+    const mv=dir*cap;
+    if(mv!==0){
+      dog.x=clamp(dog.x+mv,26,W-26);
+      if(Math.abs(mv)>cap*0.12) dog.dir=mv>0?1:-1;
+      dog.step+=Math.abs(mv);
+      /* топаем каждые ~30 единиц пути: лапа коснулась земли */
+      if(dog.step-lastPaw>30*DOG_S){ lastPaw=dog.step; SFX.paw(); }
+      dog.vx=mv/dt;
+    } else dog.vx=0;
+  } else dog.vx=0;
+  /* ⚡ следы скорости за собакой / 🪨 пыль тяжести */
+  if(speedT>0&&Math.random()<dt*26) addP({kind:'spark',x:dog.x-dog.dir*rand(14,30),y:groundY-rand(10,34)*DOG_S,vx:-dog.dir*rand(50,110),vy:rand(-20,20),g:0,life:0.35,max:0.35,size:rand(1.5,3),color:'#ffd94d'});
+  if(slowT>0&&Math.random()<dt*12) addP({kind:'puff',x:dog.x+rand(-16,16),y:groundY-rand(2,10)*DOG_S,vx:rand(-20,20),vy:rand(-24,-6),g:30,life:0.5,max:0.5,size:rand(2.5,5),color:'#9aa3b0'});
+  /* доставка: засчитываем, как только КОНЧИК несомой кости коснулся тёмного входа */
+  if(carrying&&!stunned){
+    const doorHalf=KW*0.22;          // половина ширины чёрного проёма
+    const reach=42*DOG_S;            // от центра собаки до кончика кости в зубах
+    if(dog.x-reach<=kennelLX+doorHalf) deliverBone(-1);
+    else if(dog.x+reach>=kennelRX-doorHalf) deliverBone(1);
+  }
+  /* кости */
+  const fall=curFall();
+  let anyDead=false;
+  for(let i=0;i<bones.length;i++){
+    const b=bones[i];
+    /* яд и камни разгоняются со временем, обычные кости — нет */
+    const badMult=(b.poison||b.kind==='slow')?curBadFall():1;
+    b.y+=fall*(b.kind==='slow'?CONFIG.stoneFallMult:1)*badMult*dt;
+    b.rot+=b.vr*dt;
+    if(b.poison){
+      b.wob+=dt*7;
+      b.x+=Math.sin(b.wob)*10*dt; // ядовитая слегка виляет — примета для ОБОИХ видов
+      if(b.sly){ // замаскированная: капля пореже и потусклее явной — подсказка есть, но искать надо
+        if(Math.random()<dt*4.2) addP({kind:'drip',x:b.x+rand(-4,4),y:b.y+8,vx:0,vy:40,g:180,life:0.5,max:0.5,size:rand(2,3),color:'#a8c24a'});
+      }else{
+        if(Math.random()<dt*10) addP({kind:'drip',x:b.x+rand(-4,4),y:b.y+8,vx:0,vy:40,g:180,life:0.5,max:0.5,size:rand(2,3.5),color:'#8fd438'});
+        if(Math.random()<dt*6)  addP({kind:'bubble',x:b.x+rand(-8,8),y:b.y+rand(-6,6),vx:rand(-6,6),vy:-30,g:-40,life:0.7,max:0.7,size:rand(2,4),color:'#c17fe8'});
+      }
+    }else if(b.kind==='speed'&&Math.random()<dt*9){ // ⚡ золотые искорки
+      addP({kind:'spark',x:b.x+rand(-8,8),y:b.y+rand(-6,6),vx:rand(-14,14),vy:rand(-10,26),g:60,life:0.45,max:0.45,size:rand(1.5,3),color:'#ffd94d'});
+    }else if(b.kind==='magic'&&Math.random()<dt*16){ // радужный шлейф — видно через весь экран
+      const cols=['#ff9ae0','#9ae0ff','#ffe98a','#b8ff9a'];
+      addP({kind:'spark',x:b.x+rand(-11,11),y:b.y+rand(-9,9),vx:rand(-18,18),vy:rand(-16,24),g:30,life:0.55,max:0.55,size:rand(2,4),color:cols[(Math.random()*4)|0]});
+    }else if(b.kind==='aura'&&Math.random()<dt*13){
+      addP({kind:'spark',x:b.x+rand(-10,10),y:b.y+rand(-8,8),vx:rand(-14,14),vy:rand(-14,20),g:25,life:0.5,max:0.5,size:rand(2,3.5),color:Math.random()<0.5?'#7fd8ff':'#e8faff'});
+    }else if(b.kind==='vac'&&Math.random()<dt*13){
+      addP({kind:'spark',x:b.x+rand(-10,10),y:b.y+rand(-8,8),vx:rand(-14,14),vy:rand(-14,20),g:25,life:0.5,max:0.5,size:rand(2,3.5),color:Math.random()<0.5?'#b98cff':'#e6dcff'});
+    }else if(b.kind==='invert'&&Math.random()<dt*13){
+      addP({kind:'spark',x:b.x+rand(-10,10),y:b.y+rand(-8,8),vx:rand(-14,14),vy:rand(-14,20),g:25,life:0.5,max:0.5,size:rand(2,3.5),color:Math.random()<0.5?'#ffffff':'#2a2a2a'});
+    }else if(b.kind==='slow'&&Math.random()<dt*5){ // каменная пыль — тяжесть видно издалека
+      addP({kind:'puff',x:b.x+rand(-6,6),y:b.y+8,vx:rand(-8,8),vy:rand(10,30),g:40,life:0.4,max:0.4,size:rand(2,3.5),color:'#9aa3b0'});
+    }
+    /* 🌀 пылесос: съедобное из НИЖНЕЙ половины экрана летит в пасть и
+       засчитывается как доставка в обычную будку (очки + еда, пасть свободна) */
+    if(vacT>0&&!b.dead&&isEdible(b)&&b.y>PLAY_H*0.5){
+      const m=mouthPos(), dx=m.x-b.x, dy=m.y-b.y, d=Math.hypot(dx,dy)||1;
+      const step=CONFIG.vacPullSpeed*dt;
+      if(d<=step+18){ b.dead=true; anyDead=true; vacSwallow(); continue; }
+      b.x+=dx/d*step; b.y+=dy/d*step; b.rot+=dt*12;
+      if(Math.random()<dt*20) addP({kind:'spark',x:b.x,y:b.y,vx:rand(-20,20),vy:rand(-20,20),g:0,life:0.3,max:0.3,size:rand(1.5,3),color:'#b98cff'});
+      continue;
+    }
+    /* касание собаки: ловим ТОЛЬКО в воздухе, в полосе над землёй */
+    if(!stunned&&!b.dead&&b.y>groundY-CONFIG.catchBandH&&b.y<groundY-2&&Math.abs(b.x-dog.x)<CONFIG.catchRadius){
+      if(b.kind==='speed'){ b.dead=true; anyDead=true; speedPickup(); continue; } // съедается на лету, пасть не занимает
+      if(b.kind==='slow'){ b.dead=true; anyDead=true; slowPickup(); continue; }   // камень тоже срабатывает от касания
+      if(b.kind==='magic'){ b.dead=true; anyDead=true; magicPickup(); continue; } // волшебную достаточно поймать
+      if(b.kind==='aura'){ b.dead=true; anyDead=true; auraPickup(); continue; }
+      if(b.kind==='vac'){ b.dead=true; anyDead=true; vacPickup(); continue; }
+      if(b.kind==='invert'){ b.dead=true; anyDead=true; invertPickup(); continue; }
+      if(isHarmful(b)){                       // с учётом инверсии: во время неё вредны ОБЫЧНЫЕ
+        b.dead=true; anyDead=true;
+        if(auraT>0){ auraBlock(b); } else { poisonHit(b.sly); }
+        continue;
+      }
+      if(!carrying){ b.dead=true; anyDead=true; catchBone(b); continue; }
+      /* с костью в зубах съедобные кости игнорируются — пролетают мимо */
+    }
+    /* земля: кость разбивается и исчезает навсегда */
+    if(!b.dead&&b.y>=groundY-7){ b.dead=true; anyDead=true; shatterBone(b); }
+  }
+  if(anyDead) bones=bones.filter(function(b){ return !b.dead; });
+}
+
+/* ---------- косметика (частицы/текст/летящие кости) ---------- */
+function updateFx(dt){
+  for(let i=particles.length-1;i>=0;i--){
+    const p=particles[i];
+    p.life-=dt;
+    if(p.life<=0){ particles.splice(i,1); continue; }
+    p.vy+=(p.g||0)*dt; p.x+=p.vx*dt; p.y+=p.vy*dt;
+    if(p.vrot) p.rot+=p.vrot*dt;
+  }
+  for(let i=floaters.length-1;i>=0;i--){
+    const f=floaters[i];
+    f.life-=dt; f.y-=46*dt;
+    if(f.life<=0) floaters.splice(i,1);
+  }
+  for(let i=fxBones.length-1;i>=0;i--){
+    const b=fxBones[i];
+    if(b.mode==='arc'){
+      b.t+=dt; b.rot+=b.vr*dt;
+      if(b.t>=b.dur){
+        kennelSquash[String(b.side)]=1; // будка подпрыгивает, когда кость долетела
+        for(let k=0;k<6;k++) addP({kind:'puff',x:b.x1+rand(-10,10),y:b.y1,vx:rand(-25,25),vy:rand(-40,-5),g:-15,life:rand(0.2,0.45),max:0.45,size:rand(3,6),color:'#c9b89a'});
+        fxBones.splice(i,1);
+      }
+    }else{
+      b.vy+=1500*dt; b.x+=b.vx*dt; b.y+=b.vy*dt; b.rot+=b.vr*dt; b.life-=dt;
+      if(b.y>groundY-8&&b.vy>0){ b.y=groundY-8; b.vy*=-0.45; b.vx*=0.65; }
+      if(b.life<=0) fxBones.splice(i,1);
+    }
+  }
+}
+
+/* ---------- главный цикл ---------- */
+function frame(now){
+  requestAnimationFrame(frame);
+  let rdt=(now-last)/1000; last=now;
+  if(!isFinite(rdt)||rdt<0) rdt=0.016;
+  if(rdt>0.05) rdt=0.05;           // защита от гигантского dt (фон, отладчик)
+  realTime+=rdt;
+  /* dpr или размер окна могли смениться между событиями resize */
+  const dprNow=clamp(window.devicePixelRatio||1,1,3);
+  if(RW!==window.innerWidth||RH!==window.innerHeight||canvas.width!==Math.round(window.innerWidth*dprNow)) resize();
+  /* таймеры РЕАЛЬНОГО времени: hit-stop не может заклинить игру */
+  if(hitStop>0){ hitStop-=rdt; timeScale=0.12; } else timeScale=1;
+  if(stunT>0) stunT-=rdt;
+  if(speedT>0) speedT-=rdt;
+  if(slowT>0) slowT-=rdt;
+  updateSky(rdt);
+  updateAmbience();
+  if(auraT>0) auraT-=rdt;
+  if(vacT>0){
+    vacT-=rdt;
+    if(vacHum&&muted) vacHumStop();
+    else if(!vacHum&&!muted&&AC) vacHumStart();
+    if(vacHum) vacHum.o.frequency.value=92+Math.sin(realTime*24)*6;   // урчит
+    if(Math.random()<0.6&&state==='play') addP({kind:'spark',x:mouthPos().x+dog.dir*rand(16,40)*DOG_S,y:mouthPos().y-rand(0,20)*DOG_S,vx:-dog.dir*130,vy:10,g:0,life:0.22,max:0.22,size:rand(1.5,2.6),color:'#b98cff'});
+    if(vacT<=0) vacHumStop();
+  } else if(vacHum) vacHumStop();
+  if(invT>0){ invT-=rdt; if(invT<=0) invertEnded(); }
+  if(invEndT>0) invEndT-=rdt;
+  if(shakeT>0) shakeT-=rdt;
+  if(hungerFlash>0) hungerFlash-=rdt;
+  if(overDelay>0) overDelay-=rdt;
+  scorePunch=Math.max(0,scorePunch-rdt*3);
+  hotPunch=Math.max(0,hotPunch-rdt*2.5);
+  kennelSquash['-1']=Math.max(0,kennelSquash['-1']-rdt*4);
+  kennelSquash['1']=Math.max(0,kennelSquash['1']-rdt*4);
+  dog.squash=Math.max(0,dog.squash-rdt*4);
+  /* физика с аккумулятором */
+  if(state==='play'){
+    acc+=rdt*timeScale;
+    if(acc>0.2) acc=0.2;
+    const SUB=1/120;
+    while(acc>=SUB&&state==='play'){ step(SUB); acc-=SUB; }
+  }
+  updateFx(rdt*timeScale); // косметика доигрывает и на экране смерти
+  render();
+}
+
+/* ---------- отрисовка ---------- */
+const FONT='system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif';
+function txt(s,x,y,size,color,align,weight,alpha){
+  ctx.globalAlpha=(alpha===undefined)?1:alpha;
+  ctx.fillStyle=color;
+  const wg=weight||'bold', al=align||'center';
+  let px=Math.round(size);
+  ctx.font=wg+' '+px+'px '+FONT;
+  ctx.textAlign=al;
+  ctx.textBaseline='middle';
+  /* АВТОПОДГОНКА. Английские фразы длиннее русских на четверть, и без этого
+     «CONTROLS MIRRORED · BOTH KENNELS ×4» уезжает за край поля. Раньше такое
+     уже ловили руками («КАК ОБЫЧНО!» не влезал) — теперь ловится само,
+     и для любого следующего языка тоже. Короткие строки не меряем. */
+  if(typeof s==='string'&&s.length>6){
+    const budget=(al==='center')?(W-24):(al==='left'?(W-x-12):(x-12));
+    if(budget>20){
+      const mw=ctx.measureText(s).width;
+      if(mw>budget){ px=Math.max(8,Math.floor(px*budget/mw)); ctx.font=wg+' '+px+'px '+FONT; }
+    }
+  }
+  ctx.fillText(s,x,y);
+  ctx.globalAlpha=1;
+}
+function rr(x,y,w,h,r){
+  const q=Math.min(r,w/2,h/2);
+  ctx.beginPath();
+  ctx.moveTo(x+q,y);
+  ctx.arcTo(x+w,y,x+w,y+h,q);
+  ctx.arcTo(x+w,y+h,x,y+h,q);
+  ctx.arcTo(x,y+h,x,y,q);
+  ctx.arcTo(x,y,x+w,y,q);
+  ctx.closePath();
+}
+function drawStar(x,y,r,color,rot){
+  ctx.save(); ctx.translate(x,y); ctx.rotate(rot||0);
+  ctx.fillStyle=color;
+  ctx.beginPath();
+  for(let i=0;i<8;i++){
+    const rr2=(i%2===0)?r:r*0.42;
+    const a=i/8*TAU;
+    ctx.lineTo(Math.cos(a)*rr2,Math.sin(a)*rr2);
+  }
+  ctx.closePath(); ctx.fill(); ctx.restore();
+}
+/* ---- особые предметы: не перекрашенные кости, а вещи ---- */
+function drawShieldItem(x,y,r){
+  ctx.save(); ctx.translate(x,y);
+  ctx.shadowColor='#7fd8ff'; ctx.shadowBlur=14;
+  ctx.beginPath();
+  ctx.moveTo(0,-r*0.9);
+  ctx.quadraticCurveTo(r*0.85,-r*0.62,r*0.72,-r*0.02);
+  ctx.quadraticCurveTo(r*0.6,r*0.66,0,r*0.98);
+  ctx.quadraticCurveTo(-r*0.6,r*0.66,-r*0.72,-r*0.02);
+  ctx.quadraticCurveTo(-r*0.85,-r*0.62,0,-r*0.9);
+  ctx.closePath();
+  ctx.fillStyle='#3f8fc0'; ctx.fill();
+  ctx.shadowBlur=0;
+  ctx.strokeStyle='#eafaff'; ctx.lineWidth=2.4; ctx.stroke();
+  /* мини-косточка на гербе: вот что защищаем */
+  ctx.fillStyle='#eafaff';
+  rr(-r*0.34,-r*0.10,r*0.68,r*0.2,r*0.1); ctx.fill();
+  for(const e of [-1,1]) for(const k of [-1,1]){
+    ctx.beginPath(); ctx.arc(e*r*0.34,k*r*0.13,r*0.14,0,TAU); ctx.fill();
+  }
+  ctx.restore();
+}
+function drawVacItem(x,y,r){
+  ctx.save(); ctx.translate(x,y);
+  ctx.shadowColor='#b98cff'; ctx.shadowBlur=14;
+  ctx.fillStyle='#8f5fe8';
+  rr(-r*0.75,-r*0.55,r*1.5,r*1.1,r*0.3); ctx.fill();
+  ctx.shadowBlur=0;
+  ctx.fillStyle='#b98cff';
+  rr(-r*0.75,-r*0.55,r*1.5,r*0.4,r*0.24); ctx.fill();
+  ctx.strokeStyle='#4c2a8f'; ctx.lineWidth=2;
+  rr(-r*0.75,-r*0.55,r*1.5,r*1.1,r*0.3); ctx.stroke();
+  ctx.fillStyle='#2a175c';
+  ctx.beginPath(); ctx.arc(-r*0.42,r*0.66,r*0.16,0,TAU); ctx.fill();
+  ctx.beginPath(); ctx.arc(r*0.42,r*0.66,r*0.16,0,TAU); ctx.fill();
+  /* шланг с соплом */
+  ctx.strokeStyle='#4c2a8f'; ctx.lineWidth=r*0.18; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(r*0.55,-r*0.4);
+  ctx.quadraticCurveTo(r*1.25,-r*0.75,r*1.05,-r*1.2);
+  ctx.stroke();
+  ctx.fillStyle='#2a175c';
+  rr(r*0.86,-r*1.5,r*0.4,r*0.34,r*0.08); ctx.fill();
+  /* чёрточки всасывания */
+  ctx.strokeStyle='rgba(230,220,255,0.9)'; ctx.lineWidth=1.5; ctx.lineCap='round';
+  for(let i=-1;i<=1;i++){
+    ctx.beginPath();
+    ctx.moveTo(r*(1.06+i*0.14),-r*1.86);
+    ctx.lineTo(r*(1.06+i*0.10),-r*1.58);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+function drawInvertItem(x,y,r){
+  ctx.save(); ctx.translate(x,y);
+  ctx.shadowColor='#ffffff'; ctx.shadowBlur=12;
+  ctx.beginPath(); ctx.arc(0,0,r*0.82,0,TAU);
+  ctx.fillStyle='#f2f2f2'; ctx.fill();
+  ctx.shadowBlur=0;
+  ctx.beginPath(); ctx.moveTo(0,-r*0.82); ctx.arc(0,0,r*0.82,-Math.PI/2,Math.PI/2); ctx.closePath();
+  ctx.fillStyle='#1b1b1b'; ctx.fill();
+  ctx.strokeStyle='#000'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.arc(0,0,r*0.82,0,TAU); ctx.stroke();
+  /* встречные стрелки, каждая контрастна своей половине */
+  ctx.fillStyle='#1b1b1b';
+  ctx.beginPath(); ctx.moveTo(-r*0.58,-r*0.24); ctx.lineTo(-r*0.14,-r*0.5); ctx.lineTo(-r*0.14,r*0.02); ctx.closePath(); ctx.fill();
+  ctx.fillStyle='#f2f2f2';
+  ctx.beginPath(); ctx.moveTo(r*0.58,r*0.24); ctx.lineTo(r*0.14,r*0.5); ctx.lineTo(r*0.14,-r*0.02); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+function drawBone(x,y,rot,r,poison,kind,sly){
+  if(kind==='aura'){ drawShieldItem(x,y,r); return; }
+  if(kind==='vac'){ drawVacItem(x,y,r); return; }
+  if(kind==='invert'){ drawInvertItem(x,y,r); return; }
+  ctx.save(); ctx.translate(x,y); ctx.rotate(rot);
+  const shaftW=r*0.52, lr=r*0.46;
+  const speed=(kind==='speed'), stone=(kind==='slow'), magic=(kind==='magic');
+  /* ДВА ЯДА, оба видно ИЗДАЛЕКА, но перепутать нельзя:
+     тухлая — болотно-бурая с мухой, бьёт обычно;
+     ядовитая — ярко-зелёная с фиолетовыми шишками и черепом, бьёт вдвое. */
+  /* железная кость — металл вместо камня; волшебная — переливающаяся радуга */
+  const body=poison?(sly?'#8f9a3c':'#7ec832'):(magic?'#ffffff':(speed?'#ffd94d':(stone?'#a7adb8':'#f4ecd8')));
+  const lobe=poison?(sly?'#a6a558':'#a05fd0'):(magic?'#ffd9f4':(speed?'#ffe98a':(stone?'#8e95a2':'#f4ecd8')));
+  const line=poison?(sly?'#5d6524':'#3f7d1e'):(magic?'#c96fb4':(speed?'#c8931e':(stone?'#565c66':'#b8a988')));
+  if(magic){ ctx.shadowColor='hsl('+Math.round((realTime*140)%360)+',95%,70%)'; ctx.shadowBlur=16; }
+  if(speed){ ctx.shadowColor='#ffd94d'; ctx.shadowBlur=10; }
+  ctx.lineWidth=2; ctx.strokeStyle=line;
+  ctx.fillStyle=body;
+  rr(-r,-shaftW/2,2*r,shaftW,shaftW/2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle=lobe;
+  for(let e=-1;e<=1;e+=2){
+    for(let k=-1;k<=1;k+=2){
+      if(magic) ctx.fillStyle='hsl('+Math.round((realTime*140+(e+1)*90+(k+1)*45)%360)+',90%,78%)'; // радуга
+      ctx.beginPath(); ctx.arc(e*r,k*lr*0.62,lr,0,TAU); ctx.fill(); ctx.stroke();
+    }
+  }
+  if(poison&&!sly){ // ЯДОВИТАЯ — череп, всегда вертикально, читается мгновенно
+    ctx.rotate(-rot);
+    ctx.fillStyle='#f2f2f2';
+    ctx.beginPath(); ctx.arc(0,-1,r*0.34,0,TAU); ctx.fill();
+    ctx.fillRect(-r*0.20,r*0.03,r*0.40,r*0.22);
+    ctx.fillStyle='#1e1e1e';
+    ctx.beginPath(); ctx.arc(-r*0.13,-r*0.07,r*0.09,0,TAU); ctx.fill();
+    ctx.beginPath(); ctx.arc(r*0.13,-r*0.07,r*0.09,0,TAU); ctx.fill();
+  }
+  if(poison&&sly){ // ТУХЛАЯ — своя примета: муха над костью, тоже строго вертикально
+    ctx.rotate(-rot);
+    ctx.fillStyle='#2b2b1c';
+    ctx.beginPath(); ctx.ellipse(0,-r*0.06,r*0.16,r*0.11,0,0,TAU); ctx.fill();
+    ctx.fillStyle='rgba(230,240,200,0.85)';
+    ctx.beginPath(); ctx.ellipse(-r*0.17,-r*0.20,r*0.15,r*0.08,-0.6,0,TAU); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(r*0.17,-r*0.20,r*0.15,r*0.08,0.6,0,TAU); ctx.fill();
+    /* пятна гнили на самой кости */
+    ctx.fillStyle='rgba(60,70,20,0.55)';
+    ctx.beginPath(); ctx.arc(-r*0.45,r*0.06,r*0.13,0,TAU); ctx.fill();
+    ctx.beginPath(); ctx.arc(r*0.40,-r*0.10,r*0.10,0,TAU); ctx.fill();
+  }
+  if(speed){ // молния всегда вертикально, как черепок у яда
+    ctx.rotate(-rot);
+    ctx.fillStyle='#fffbe8'; ctx.strokeStyle='#c8931e'; ctx.lineWidth=1.4;
+    ctx.beginPath();
+    ctx.moveTo(-r*0.10,-r*0.42); ctx.lineTo(r*0.16,-r*0.42); ctx.lineTo(r*0.02,-r*0.06);
+    ctx.lineTo(r*0.18,-r*0.06); ctx.lineTo(-r*0.12,r*0.44); ctx.lineTo(-r*0.02,r*0.04);
+    ctx.lineTo(-r*0.18,r*0.04); ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+  if(magic){ // ЗВЁЗДОЧКА — всегда вертикально, как череп у яда
+    ctx.shadowBlur=0;
+    ctx.rotate(-rot);
+    ctx.fillStyle='#fffdf5'; ctx.strokeStyle='#c96fb4'; ctx.lineWidth=1.3;
+    ctx.beginPath();
+    for(let i=0;i<10;i++){
+      const a=-Math.PI/2+i*Math.PI/5, rad=(i%2===0)?r*0.46:r*0.19;
+      const px=Math.cos(a)*rad, py=Math.sin(a)*rad;
+      if(i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+    }
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+  if(stone){ // ЖЕЛЕЗНАЯ: заклёпки и гравировка веса, всегда горизонтально
+    ctx.rotate(-rot);
+    ctx.fillStyle='#565c66';
+    for(const e of [-1,1]) for(const k of [-1,1]){
+      ctx.beginPath(); ctx.arc(e*r*0.62,k*r*0.30,r*0.07,0,TAU); ctx.fill();
+    }
+    ctx.font='800 '+Math.max(6,r*0.5)+'px system-ui,sans-serif';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillStyle='rgba(255,255,255,0.30)'; ctx.fillText(T('kg'),0.8,r*0.06+0.8);
+    ctx.fillStyle='#3a404b'; ctx.fillText(T('kg'),0,r*0.06);
+  }
+  ctx.restore();
+}
+function drawGround(){
+  const gh=PLAY_H-groundY;
+  /* земля с градиентом: у горизонта светлее, к низу уходит в тень */
+  const gg=ctx.createLinearGradient(0,groundY,0,PLAY_H);
+  gg.addColorStop(0,'#3a2b21'); gg.addColorStop(0.45,'#2b1f18'); gg.addColorStop(1,'#1c1410');
+  ctx.fillStyle=gg; ctx.fillRect(0,groundY,W,gh);
+  /* кромка: тёплая полоса и трава силуэтом */
+  ctx.fillStyle='#4a3527'; ctx.fillRect(0,groundY,W,5);
+  ctx.strokeStyle='#2c3a22'; ctx.lineWidth=1.6;
+  for(let i=0;i<46;i++){
+    const gx=((i*97.31+13)%1000)/1000*W, lean=Math.sin(realTime*0.8+i)*1.6, hgt=3+((i*41.7)%5);
+    ctx.beginPath(); ctx.moveTo(gx,groundY+3); ctx.lineTo(gx+lean,groundY+3-hgt); ctx.stroke();
+  }
+  /* ЛУЖИ: отражают луну и свет будок — самая дешёвая «дорогая» деталь */
+  for(let i=0;i<3;i++){
+    const px=W*(0.18+i*0.31)+Math.sin(i*2.1)*10, py=groundY+gh*(0.42+0.18*((i*7)%3)/2);
+    const pw=W*(0.10+0.045*((i*5)%3)), ph=Math.max(3,gh*0.11);
+    const pg=ctx.createLinearGradient(0,py-ph,0,py+ph);
+    pg.addColorStop(0,'rgba(150,175,225,0.42)'); pg.addColorStop(1,'rgba(70,82,130,0.20)');
+    ctx.fillStyle=pg;
+    ctx.beginPath(); ctx.ellipse(px,py,pw,ph,0,0,TAU); ctx.fill();
+    /* круги от капель: расходятся от центра и гаснут к краю лужи.
+       t — фаза 0..1, ph — полувысота самой лужи (не затенять!) */
+    for(let k=0;k<2;k++){
+      const t=(realTime*0.9+i*0.37+k*0.5)%1;
+      ctx.strokeStyle='rgba(210,224,255,'+(0.26*(1-t)).toFixed(3)+')';
+      ctx.lineWidth=1;
+      ctx.beginPath();
+      ctx.ellipse(px+Math.sin(i*3+k*2)*pw*0.35,py,pw*0.6*t,ph*0.85*t,0,0,TAU);
+      ctx.stroke();
+    }
+    /* дрожащий блик — как отражение в воде */
+    ctx.fillStyle='rgba(247,238,203,'+(0.22+0.08*Math.sin(realTime*2+i)).toFixed(3)+')';
+    ctx.beginPath(); ctx.ellipse(px+Math.sin(realTime*1.4+i)*2,py,pw*0.30,ph*0.34,0,0,TAU); ctx.fill();
+  }
+  /* камешки */
+  ctx.fillStyle='rgba(0,0,0,0.18)';
+  for(let i=0;i<16;i++){
+    const px=((i*211.7+37)%1000)/1000*W;
+    const py=groundY+14+((i*53.3+11)%1000)/1000*Math.max(8,gh-24);
+    ctx.beginPath(); ctx.ellipse(px,py,3.2,1.8,0,0,TAU); ctx.fill();
+  }
+  ctx.fillStyle='rgba(255,255,255,0.05)';
+  for(let i=0;i<10;i++){
+    const px=((i*167.3+61)%1000)/1000*W;
+    const py=groundY+16+((i*73.9+29)%1000)/1000*Math.max(8,gh-26);
+    ctx.fillRect(px,py,2,1.5);
+  }
+}
+/* ---------- ЗВЁЗДНОЕ НЕБО ----------
+   Три слоя звёзд: пыль (мелкая, почти неподвижная), обычные и крупные
+   с лучиками. Плюс млечный путь диагональной полосой и редкие падающие
+   звёзды. Всё считается один раз, в кадре — только рисование точек. */
+function buildStars(){
+  let seed=771103;
+  const rnd=()=>{ seed=(seed*1103515245+12345)&0x7fffffff; return seed/0x7fffffff; };
+  stars=[];
+  const skyH=groundY*0.80;                       // ниже звёзд почти не видно за городом
+  for(let i=0;i<CONFIG.starCount;i++){
+    const r0=rnd();
+    /* 60% пыль, 30% обычные, 10% крупные */
+    const tier = r0<0.60?0 : (r0<0.90?1:2);
+    /* половину звёзд кучкуем вдоль млечного пути — так небо не выглядит сеткой */
+    const inMilky = rnd()<0.45;
+    let x,y;
+    if(inMilky){
+      const t=rnd();
+      x = W*(-0.05+1.10*t);
+      y = skyH*(0.62-0.42*t) + (rnd()-0.5)*skyH*0.20;
+    }else{
+      x = rnd()*W;
+      y = rnd()*skyH;
+    }
+    stars.push({
+      x:x, y:clamp(y,2,skyH),
+      r: tier===0?0.7:(tier===1?1.2:1.9),
+      tier: tier,
+      /* голубоватые, белые и тёплые — небо становится живым */
+      col: rnd()<0.25?'#bcd4ff' : (rnd()<0.5?'#fff6e2':'#ffe9c9'),
+      base: tier===0?0.20:(tier===1?0.42:0.70),
+      amp: tier===0?0.10:(tier===1?0.28:0.30),
+      sp: 0.5+rnd()*1.6,
+      ph: rnd()*6.28
+    });
+  }
+}
+function updateSky(rdt){
+  if(!stars) buildStars();
+  /* падающая звезда: живёт меньше секунды, летит наискось вниз */
+  if(shoot){
+    shoot.t+=rdt;
+    shoot.x+=shoot.vx*rdt; shoot.y+=shoot.vy*rdt;
+    if(shoot.t>shoot.life) shoot=null;
+  }else{
+    shootT-=rdt;
+    if(shootT<=0){
+      shootT=rand(CONFIG.shootMin,CONFIG.shootMax);
+      const fromLeft=Math.random()<0.5;
+      shoot={
+        x: fromLeft?rand(-20,W*0.4):rand(W*0.6,W+20),
+        y: rand(groundY*0.05,groundY*0.42),
+        vx:(fromLeft?1:-1)*rand(240,420), vy:rand(90,190),
+        life:rand(0.45,0.8), t:0, len:rand(26,52)
+      };
+    }
+  }
+}
+function drawSky(){
+  if(!stars) buildStars();
+  /* млечный путь — мягкая диагональная дымка под звёздами */
+  const skyH=groundY*0.80;
+  ctx.save();
+  ctx.translate(W*0.5,skyH*0.42); ctx.rotate(-0.42);
+  if(!milkyGrad||milkyH!==skyH){
+    milkyGrad=ctx.createLinearGradient(0,-skyH*0.16,0,skyH*0.16);
+    milkyGrad.addColorStop(0,'rgba(150,160,235,0)');
+    milkyGrad.addColorStop(0.5,'rgba(164,172,240,0.085)');
+    milkyGrad.addColorStop(1,'rgba(150,160,235,0)');
+    milkyH=skyH;
+  }
+  ctx.fillStyle=milkyGrad;
+  ctx.fillRect(-W*0.9,-skyH*0.16,W*1.8,skyH*0.32);
+  ctx.restore();
+  /* звёзды */
+  for(let i=0;i<stars.length;i++){
+    const st=stars[i];
+    const tw=st.base+st.amp*Math.sin(realTime*st.sp+st.ph);
+    ctx.globalAlpha=clamp(tw,0,1);
+    ctx.fillStyle=st.col;
+    if(st.tier===0){
+      ctx.fillRect(st.x,st.y,1.4,1.4);
+    }else{
+      ctx.beginPath(); ctx.arc(st.x,st.y,st.r,0,TAU); ctx.fill();
+      if(st.tier===2){
+        /* крупным — тонкие лучики крестом, они и создают «сияние» */
+        ctx.globalAlpha=clamp(tw*0.55,0,1);
+        ctx.strokeStyle=st.col; ctx.lineWidth=0.9;
+        const L=st.r*3.4;
+        ctx.beginPath();
+        ctx.moveTo(st.x-L,st.y); ctx.lineTo(st.x+L,st.y);
+        ctx.moveTo(st.x,st.y-L); ctx.lineTo(st.x,st.y+L);
+        ctx.stroke();
+      }
+    }
+  }
+  ctx.globalAlpha=1;
+  /* падающая звезда с тающим хвостом */
+  if(shoot){
+    const k=1-shoot.t/shoot.life;
+    const n=Math.hypot(shoot.vx,shoot.vy)||1;
+    const tx=shoot.x-shoot.vx/n*shoot.len, ty=shoot.y-shoot.vy/n*shoot.len;
+    const tg=ctx.createLinearGradient(shoot.x,shoot.y,tx,ty);
+    tg.addColorStop(0,'rgba(255,250,225,'+(0.95*k).toFixed(3)+')');
+    tg.addColorStop(1,'rgba(255,250,225,0)');
+    ctx.strokeStyle=tg; ctx.lineWidth=2; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(shoot.x,shoot.y); ctx.lineTo(tx,ty); ctx.stroke();
+    ctx.fillStyle='rgba(255,252,235,'+(0.95*k).toFixed(3)+')';
+    ctx.beginPath(); ctx.arc(shoot.x,shoot.y,1.8,0,TAU); ctx.fill();
+  }
+}
+/* Градиент ночного неба — один на кадр, переиспользуется и небом, и вырезом
+   месяца. Пересоздаётся только при смене размера поля. */
+let skyGrad=null, skyGradH=0;
+function skyGradient(){
+  if(!skyGrad||skyGradH!==PLAY_H){
+    skyGrad=ctx.createLinearGradient(0,0,0,PLAY_H);
+    skyGrad.addColorStop(0,'#252043'); skyGrad.addColorStop(0.55,'#3b2d52'); skyGrad.addColorStop(1,'#191325');
+    skyGradH=PLAY_H;
+  }
+  return skyGrad;
+}
+/* МЕСЯЦ: тёплый серп с ореолом. Вырез закрашивается ТЕМ ЖЕ градиентом неба —
+   composite-операции тут не годятся: destination-out пробивает дыру насквозь,
+   а полупрозрачная кисть просто притемняет диск (наступал). */
+function drawMoon(){
+  const mx=W*0.80, my=PLAY_H*0.13, R=24;
+  /* ореол */
+  const hg=ctx.createRadialGradient(mx,my,R*0.7,mx,my,R*4.2);
+  hg.addColorStop(0,'rgba(255,244,206,0.20)');
+  hg.addColorStop(0.45,'rgba(240,232,200,0.07)');
+  hg.addColorStop(1,'rgba(240,232,200,0)');
+  ctx.fillStyle=hg;
+  ctx.beginPath(); ctx.arc(mx,my,R*4.2,0,TAU); ctx.fill();
+  ctx.save();
+  ctx.beginPath(); ctx.arc(mx,my,R,0,TAU); ctx.clip();
+  /* диск */
+  ctx.fillStyle='#fdf3cd';
+  ctx.beginPath(); ctx.arc(mx,my,R,0,TAU); ctx.fill();
+  /* кратеры — на видимой части серпа, слева */
+  ctx.fillStyle='rgba(216,202,152,0.60)';
+  ctx.beginPath(); ctx.arc(mx-R*0.46,my+R*0.28,R*0.19,0,TAU); ctx.fill();
+  ctx.beginPath(); ctx.arc(mx-R*0.24,my-R*0.48,R*0.12,0,TAU); ctx.fill();
+  ctx.beginPath(); ctx.arc(mx-R*0.66,my-R*0.14,R*0.09,0,TAU); ctx.fill();
+  /* тёплая кромка по краю диска — рисуем ДО выреза, лишнее он и съест */
+  ctx.strokeStyle='rgba(255,252,228,0.75)'; ctx.lineWidth=1.8;
+  ctx.beginPath(); ctx.arc(mx,my,R-0.9,0,TAU); ctx.stroke();
+  /* ВЫРЕЗ: смещённый круг, закрашенный градиентом неба — шва не видно */
+  ctx.fillStyle=skyGradient();
+  ctx.beginPath(); ctx.arc(mx+R*0.66,my-R*0.26,R*0.92,0,TAU); ctx.fill();
+  ctx.restore();
+}
+/* ---------- ПАРАЛЛАКС-ГОРОД ----------
+   Три слоя силуэтов едут с разной скоростью от позиции собаки: дальний почти
+   стоит, ближний уезжает заметно — так пустое небо превращается в глубину.
+   Геометрия детерминированная (свой генератор чисел), считается один раз
+   на раскладку: в кадре только заливки прямоугольников, телефон не потеет. */
+function buildSkyline(){
+  let seed=20260730;
+  const rnd=()=>{ seed=(seed*1103515245+12345)&0x7fffffff; return seed/0x7fffffff; };
+  const layers=[
+    /* дальний: высокие башни, почти без окон, тонут в дымке */
+    {par:0.045, col:'#241f42', top:0.52, h:[0.18,0.32], w:[26,52], gap:[2,14], win:0.10, winCol:'rgba(255,226,170,0.40)'},
+    /* средний: жилые дома, окна плотнее */
+    {par:0.10,  col:'#1d1834', top:0.60, h:[0.13,0.23], w:[34,64], gap:[3,12], win:0.28, winCol:'rgba(255,214,150,0.58)'},
+    /* ближний: низкие крыши с трубами и антеннами */
+    {par:0.19,  col:'#150f27', top:0.72, h:[0.08,0.15], w:[44,86], gap:[4,16], win:0.16, winCol:'rgba(255,205,140,0.70)'}
+  ];
+  sky=[];
+  for(const L of layers){
+    /* строим шире экрана с запасом — при сдвиге края не оголятся */
+    const pad=W*0.5, blocks=[];
+    let x=-pad;
+    while(x<W+pad){
+      const bw=L.w[0]+rnd()*(L.w[1]-L.w[0]);
+      const bh=groundY*(L.h[0]+rnd()*(L.h[1]-L.h[0]));
+      const b={x:x,w:bw,h:bh,wins:[],roof:[]};
+      /* окна сеткой, часть погашена */
+      const cols=Math.max(1,Math.floor(bw/13)), rows=Math.max(1,Math.floor(bh/17));
+      for(let c=0;c<cols;c++) for(let r2=0;r2<rows;r2++){
+        if(rnd()>L.win) continue;
+        b.wins.push({x:6+c*13, y:12+r2*17, w:5, h:7, warm:rnd()<0.75, ph:rnd()*6.28});
+      }
+      /* надстройки на крыше — только у ближнего слоя */
+      if(L.par>0.15){
+        if(rnd()<0.55) b.roof.push({t:'box', x:bw*(0.15+rnd()*0.5), w:8+rnd()*12, h:6+rnd()*10});
+        if(rnd()<0.45) b.roof.push({t:'pipe', x:bw*(0.2+rnd()*0.6), w:4, h:10+rnd()*14});
+        if(rnd()<0.30) b.roof.push({t:'ant', x:bw*(0.3+rnd()*0.4), w:2, h:14+rnd()*18});
+      }
+      blocks.push(b);
+      x+=bw+L.gap[0]+rnd()*(L.gap[1]-L.gap[0]);
+    }
+    sky.push({cfg:L, blocks:blocks});
+  }
+}
+function drawSkyline(){
+  if(!sky) buildSkyline();
+  /* сдвиг от того, где собака: центр экрана = ноль */
+  const off=(dog.x-W/2);
+  for(const L of sky){
+    const c=L.cfg, dx=-off*c.par, base=groundY*(1)+2;
+    ctx.fillStyle=c.col;
+    for(const b of L.blocks){
+      const bx=b.x+dx;
+      if(bx>W+90||bx+b.w<-90) continue;
+      const by=base-b.h;
+      ctx.fillRect(bx,by,b.w,b.h);
+      for(const rf of b.roof){
+        if(rf.t==='ant'){ ctx.fillRect(bx+rf.x,by-rf.h,rf.w,rf.h); }
+        else ctx.fillRect(bx+rf.x,by-rf.h,rf.w,rf.h);
+      }
+    }
+    /* окна отдельным проходом: меньше переключений кисти */
+    ctx.fillStyle=c.winCol;
+    for(const b of L.blocks){
+      const bx=b.x+dx;
+      if(bx>W+90||bx+b.w<-90) continue;
+      const by=base-b.h;
+      for(const wn of b.wins){
+        if(wn.y+wn.h>b.h-4) continue;
+        /* редкое мигание: свет в квартире то есть, то нет */
+        if(!wn.warm&&Math.sin(realTime*0.7+wn.ph)<0.3) continue;
+        ctx.fillRect(bx+wn.x,by+wn.y,wn.w,wn.h);
+      }
+    }
+    /* дымка поверх слоя — дальние тонут сильнее.
+       ГРАДИЕНТОМ, а не плоской заливкой: у плоской верхний край даёт резкую
+       линию, и при вспышке молнии она проступает через весь экран. */
+    const hz=groundY*c.top, hh=groundY*(1-c.top)+4;
+    const hg=ctx.createLinearGradient(0,hz,0,hz+hh);
+    const dens=(c.par<0.06?0.34:(c.par<0.12?0.18:0.06));
+    hg.addColorStop(0,'rgba(58,45,84,0)');
+    hg.addColorStop(1,'rgba(58,45,84,'+dens+')');
+    ctx.fillStyle=hg;
+    ctx.fillRect(0,hz,W,hh);
+  }
+}
+/* ---------- ПУЛЬТ: две кнопки, палец не лезет в игру ---------- */
+function drawPad(){
+  ctx.fillStyle='#0a0c12'; ctx.fillRect(0,PLAY_H,W,CTRL_H);
+  ctx.fillStyle='rgba(255,255,255,0.07)'; ctx.fillRect(0,PLAY_H,W,2);
+  const live=(state==='play');
+  const inv=live&&invT>0;                                  // ⇄ пульт зеркальный
+  const activeDir=live?((keyL!==keyR)?(keyR?1:-1):padDir):0;
+  for(const s of [-1,1]){
+    const r=padRect(s), pressed=(activeDir===s);
+    ctx.fillStyle=inv?(pressed?'#5c3a78':'#2a1c38'):(pressed?'#3d4c6b':'#1b2130');
+    rr(r.x,r.y,r.w,r.h,16); ctx.fill();
+    ctx.strokeStyle=inv?(pressed?'#e2a6ff':'#7c4fa6'):(pressed?'#7d95cc':'#2b3448');
+    ctx.lineWidth=inv?3:2; rr(r.x,r.y,r.w,r.h,16); ctx.stroke();
+    const cx=r.x+r.w/2, cy=r.y+r.h/2, a=Math.min(r.h*0.32,28);
+    /* стрелка остаётся на своей кнопке — она обозначает КНОПКУ, а не направление бега */
+    ctx.fillStyle=live?(inv?(pressed?'#ffffff':'#d9b4f0'):(pressed?'#ffffff':'#93a3c4')):'#4a5468';
+    ctx.beginPath();
+    ctx.moveTo(cx+s*a*0.55,cy); ctx.lineTo(cx-s*a*0.45,cy-a*0.8); ctx.lineTo(cx-s*a*0.45,cy+a*0.8);
+    ctx.closePath(); ctx.fill();
+    if(inv) drawSwapMark(cx,r.y+13,Math.min(r.w*0.10,15));
+  }
+}
+/* ⇄ симметричный знак «встречные стрелки»: сообщает, что управление перевёрнуто,
+   и при этом НЕ подсказывает, какая кнопка куда ведёт */
+function drawSwapMark(cx,cy,w){
+  const blink=0.62+0.38*Math.abs(Math.sin(realTime*7));
+  ctx.save(); ctx.translate(cx,cy); ctx.globalAlpha=blink;
+  ctx.strokeStyle='#f0d6ff'; ctx.lineWidth=2; ctx.lineCap='round';
+  const h=w*0.34;
+  for(const d of [-1,1]){
+    ctx.beginPath(); ctx.moveTo(-d*w,d*h); ctx.lineTo(d*w*0.72,d*h); ctx.stroke();
+    ctx.fillStyle='#f0d6ff';
+    ctx.beginPath();
+    ctx.moveTo(d*w,d*h); ctx.lineTo(d*w*0.55,d*h-w*0.30); ctx.lineTo(d*w*0.55,d*h+w*0.30);
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+}
+function drawKennel(side){
+  const cx=(side===-1)?kennelLX:kennelRX;
+  const hot=hotAt(side);                                   // зеркало зажигает обе
+  const hm=curHotMult();
+  const warn=hot&&invT<=0&&hotT<=CONFIG.hotWarn;           // предупреждение о смене
+  const blinkOn=!warn||(Math.floor(realTime*12)%2===0);    // частое мигание ~6 Гц
+  const sq=kennelSquash[String(side)];
+  const w=KW,h=KH;
+  ctx.save();
+  ctx.translate(cx,groundY);
+  ctx.scale(1+0.12*sq,1-0.12*sq);
+  if(hot&&blinkOn){
+    const pulse=0.55+0.18*Math.sin(realTime*5)+0.35*hotPunch;
+    const rg=ctx.createRadialGradient(0,-h*0.45,10,0,-h*0.45,w*1.15);
+    rg.addColorStop(0,'rgba(255,150,40,'+(0.34*pulse).toFixed(3)+')');
+    rg.addColorStop(1,'rgba(255,150,40,0)');
+    ctx.fillStyle=rg;
+    ctx.beginPath(); ctx.arc(0,-h*0.45,w*1.15,0,TAU); ctx.fill();
+  }
+  const hotNow=hot&&blinkOn;
+  ctx.fillStyle=hotNow?'#a8552d':'#6e4a31';
+  rr(-w/2,-h*0.62,w,h*0.62,4); ctx.fill();
+  ctx.fillStyle=hotNow?'#7c3a1e':'#4f3322';
+  ctx.beginPath();
+  ctx.moveTo(-w*0.62,-h*0.56); ctx.lineTo(0,-h*1.02); ctx.lineTo(w*0.62,-h*0.56);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle='rgba(0,0,0,0.18)'; ctx.lineWidth=2;
+  ctx.beginPath();
+  ctx.moveTo(-w/2+6,-h*0.42); ctx.lineTo(w/2-6,-h*0.42);
+  ctx.moveTo(-w/2+6,-h*0.22); ctx.lineTo(w/2-6,-h*0.22);
+  ctx.stroke();
+  ctx.fillStyle='#211510';
+  ctx.beginPath();
+  ctx.arc(0,-h*0.20,w*0.22,Math.PI,0);
+  ctx.lineTo(w*0.22,0); ctx.lineTo(-w*0.22,0);
+  ctx.closePath(); ctx.fill();
+  if(hot){
+    ctx.globalAlpha=blinkOn?1:0.22;
+    /* размер таблички привязан к будке — иначе на маленькой будке она выглядит вывеской.
+       Чем жирнее множитель, тем ярче и крупнее — ×5 видно с другого конца двора. */
+    const big=hm>=4, mid=hm>=3;
+    const grow=big?1.28:(mid?1.08:1);
+    const bw=clamp(w*0.75,34,50)*grow, bh=bw*0.64, fs=bw*0.42;
+    const by=-h*1.02-bh*0.75+Math.sin(realTime*(big?6:4))*(big?4.5:3);
+    if(big){ // сияние вокруг щедрой таблички
+      const gg=ctx.createRadialGradient(0,by,2,0,by,bw*1.1);
+      gg.addColorStop(0,'rgba(255,225,90,0.45)'); gg.addColorStop(1,'rgba(255,225,90,0)');
+      ctx.fillStyle=gg; ctx.beginPath(); ctx.arc(0,by,bw*1.1,0,TAU); ctx.fill();
+    }
+    ctx.fillStyle=big?'#ffd233':(mid?'#ff9f2e':'#d8823a');
+    rr(-bw/2,by-bh/2,bw,bh,bh*0.31); ctx.fill();
+    ctx.fillStyle=big?'#fff6cf':'#ffe3b8'; rr(-bw/2,by-bh/2,bw,bh*0.16,bh*0.09); ctx.fill();
+    txt('×'+hm,0,by+fs*0.05,fs,'#3a1c00','center','bold',blinkOn?1:0.22);
+    ctx.globalAlpha=1;
+  }
+  ctx.restore();
+}
+function drawDog(){
+  ctx.save();
+  ctx.translate(dog.x,groundY);
+  ctx.scale(dog.dir,1);
+  ctx.scale((1+0.14*dog.squash)*DOG_S,(1-0.14*dog.squash)*DOG_S);
+  const moving=Math.abs(dog.vx)>20;
+  const ph=dog.step*0.22/DOG_S;
+  const stunned=stunT>0;
+  const main='#e2a24f', dark='#c78a3c', light='#f3c98a';
+  /* хвост */
+  const wag=Math.sin(realTime*(carrying?7:13))*0.5;
+  ctx.save();
+  ctx.translate(-25,-31); ctx.rotate(-0.5+wag*0.6);
+  ctx.strokeStyle=dark; ctx.lineWidth=7; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(0,0); ctx.quadraticCurveTo(-8,-6,-13,-14); ctx.stroke();
+  ctx.restore();
+  /* дальние лапы */
+  ctx.fillStyle=dark;
+  let lift=moving?Math.max(0,Math.sin(ph))*5:0;
+  rr(-14,-18,6,18-lift,3); ctx.fill();
+  lift=moving?Math.max(0,Math.sin(ph+Math.PI))*5:0;
+  rr(12,-18,6,18-lift,3); ctx.fill();
+  /* тело */
+  ctx.fillStyle=main;
+  ctx.beginPath(); ctx.ellipse(0,-27,26,15+Math.sin(realTime*3)*0.6,0,0,TAU); ctx.fill();
+  ctx.fillStyle=light;
+  ctx.beginPath(); ctx.ellipse(2,-20,15,7,0,0,TAU); ctx.fill();
+  /* ближние лапы */
+  ctx.fillStyle=main;
+  lift=moving?Math.max(0,Math.sin(ph+Math.PI*0.9))*5:0;
+  rr(-21,-18,6,18-lift,3); ctx.fill();
+  lift=moving?Math.max(0,Math.sin(ph+Math.PI*1.9))*5:0;
+  rr(17,-18,6,18-lift,3); ctx.fill();
+  /* голова */
+  ctx.save();
+  ctx.translate(22,-40);
+  if(stunned) ctx.rotate(0.12*Math.sin(realTime*20));
+  ctx.fillStyle=main;
+  ctx.beginPath(); ctx.arc(0,0,13,0,TAU); ctx.fill();
+  ctx.fillStyle=light;
+  ctx.beginPath(); ctx.ellipse(10,3,9,6,0,0,TAU); ctx.fill();
+  ctx.fillStyle='#3a2a1e';
+  ctx.beginPath(); ctx.arc(17,1,3,0,TAU); ctx.fill();
+  /* ухо */
+  ctx.fillStyle=dark;
+  ctx.save();
+  ctx.translate(-4,-9);
+  ctx.rotate(0.5+(moving?0.22:0)+Math.sin(realTime*9)*0.05);
+  ctx.beginPath(); ctx.ellipse(0,6,5.5,10,0,0,TAU); ctx.fill();
+  ctx.restore();
+  /* глаз */
+  if(stunned){
+    ctx.strokeStyle='#3a2a1e'; ctx.lineWidth=2;
+    ctx.beginPath();
+    ctx.moveTo(2,-6); ctx.lineTo(8,0); ctx.moveTo(8,-6); ctx.lineTo(2,0);
+    ctx.stroke();
+  }else{
+    ctx.fillStyle='#fff';
+    ctx.beginPath(); ctx.arc(5,-3,3.6,0,TAU); ctx.fill();
+    ctx.fillStyle='#26160c';
+    ctx.beginPath(); ctx.arc(6.1,-2.6,1.8,0,TAU); ctx.fill();
+  }
+  /* кость в зубах */
+  if(carrying) drawBone(15,7,-0.14,12*(CONFIG.boneScale/CONFIG.dogScale),false,undefined);
+  ctx.restore();
+  ctx.restore();
+  /* звёздочки оглушения */
+  if(stunned){
+    for(let i=0;i<3;i++){
+      const a=realTime*7+i*2.09;
+      drawStar(dog.x+Math.cos(a)*20*DOG_S,groundY-64*DOG_S+Math.sin(a)*7*DOG_S,5,'#ffd94d',a);
+    }
+  }
+}
+function drawParticles(){
+  for(let i=0;i<particles.length;i++){
+    const p=particles[i];
+    const k=clamp(p.life/p.max,0,1);
+    if(p.kind==='puff'){
+      ctx.globalAlpha=k*0.7; ctx.fillStyle=p.color;
+      ctx.beginPath(); ctx.arc(p.x,p.y,p.size*(1+(1-k)*1.6),0,TAU); ctx.fill();
+    }else if(p.kind==='bubble'){
+      ctx.globalAlpha=k*0.8; ctx.strokeStyle=p.color; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.arc(p.x,p.y,p.size,0,TAU); ctx.stroke();
+    }else if(p.kind==='shard'){
+      ctx.globalAlpha=k; ctx.fillStyle=p.color;
+      ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(p.rot||0);
+      ctx.fillRect(-p.size,-p.size*0.5,p.size*2,p.size);
+      ctx.restore();
+    }else{ /* spark / coin / drip */
+      ctx.globalAlpha=k; ctx.fillStyle=p.color;
+      ctx.beginPath(); ctx.arc(p.x,p.y,p.size*(0.4+0.6*k),0,TAU); ctx.fill();
+    }
+  }
+  ctx.globalAlpha=1;
+}
+function drawFloaters(){
+  for(let i=0;i<floaters.length;i++){
+    const f=floaters[i];
+    const t=1-f.life/f.max;
+    const sc=1+0.45*Math.max(0,1-t*3.5);
+    const a=(f.life/f.max<0.35)?(f.life/f.max/0.35):1;
+    /* держим надпись целиком в поле: у будки на краю она иначе срезается */
+    const size=f.size*sc;
+    ctx.font='bold '+size.toFixed(1)+'px system-ui,-apple-system,sans-serif';
+    const halfW=ctx.measureText(f.txt).width/2+4;
+    txt(f.txt,clamp(f.x,halfW,W-halfW),f.y,size,f.color,'center','bold',a);
+  }
+}
+function drawHUD(){
+  /* шкала голода — ниже чёлки на iPhone */
+  const bx=14,by=12+SAFE_TOP,bw=W-28-46,bh=20;
+  const frac=clamp(hunger/CONFIG.hungerMax,0,1);
+  ctx.fillStyle='rgba(0,0,0,0.45)'; rr(bx,by,bw,bh,10); ctx.fill();
+  let a=1;
+  if(frac<0.3) a=0.55+0.45*Math.abs(Math.sin(realTime*10)); // мигает при низком голоде
+  const wv=Math.max(0,(bw-4)*frac);
+  if(wv>1){
+    ctx.globalAlpha=a;
+    ctx.fillStyle='hsl('+Math.round(frac*110)+',75%,48%)';   // зелёный → жёлтый → красный
+    rr(bx+2,by+2,wv,bh-4,8); ctx.fill();
+    ctx.globalAlpha=1;
+  }
+  if(hungerFlash>0){
+    ctx.globalAlpha=clamp(hungerFlash/0.6,0,1);
+    ctx.strokeStyle='#ff4030'; ctx.lineWidth=3;
+    rr(bx,by,bw,bh,10); ctx.stroke();
+    ctx.globalAlpha=1;
+  }
+
+  /* счёт с иконкой-косточкой */
+  const pk=1+0.30*scorePunch, sy=58+SAFE_TOP;
+  drawBone(28,sy,-0.5,11*pk,false);
+  txt(String(score),46,sy,30*pk,'#ffffff','left');
+  if(combo>0) txt('+'+curDeliveryPts()+T('perBone'),46,sy+24,12,'#8fe06a','left','600');
+  txt(T('best')+best,W-14,sy,14,'rgba(255,255,255,0.55)','right');
+}
+function drawLang(){
+  if(!langVisible()) return;
+  const r=langRect();
+  ctx.fillStyle='rgba(0,0,0,0.45)'; rr(r.x,r.y,r.w,r.h,12); ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,0.18)'; ctx.lineWidth=1.5; rr(r.x,r.y,r.w,r.h,12); ctx.stroke();
+  txt(lang==='ru'?'English':'Русский',r.x+r.w/2,r.y+r.h/2,15,'rgba(255,255,255,0.8)','center','700');
+}
+function drawMute(){
+  const m=muteRect();
+  ctx.fillStyle='rgba(0,0,0,0.42)'; rr(m.x,m.y,m.w,m.h,9); ctx.fill();
+  const cx=m.x+m.w/2, cy=m.y+m.h/2;
+  ctx.fillStyle='#e8e4d8';
+  ctx.beginPath();
+  ctx.moveTo(cx-10,cy-4); ctx.lineTo(cx-4,cy-4); ctx.lineTo(cx+2,cy-9);
+  ctx.lineTo(cx+2,cy+9); ctx.lineTo(cx-4,cy+4); ctx.lineTo(cx-10,cy+4);
+  ctx.closePath(); ctx.fill();
+  if(muted){
+    ctx.strokeStyle='#e05545'; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.moveTo(cx-10,cy+10); ctx.lineTo(cx+11,cy-10); ctx.stroke();
+  }else{
+    ctx.strokeStyle='#e8e4d8'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(cx+3,cy,6,-0.9,0.9); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx+3,cy,10,-0.9,0.9); ctx.stroke();
+  }
+}
+function drawStart(){
+  ctx.fillStyle='rgba(10,8,18,0.60)'; ctx.fillRect(0,0,W,PLAY_H);
+  const ts=Math.min(W*0.145,64);
+  // декоративные кости — НАД заголовком, чтобы не налезали на буквы
+  drawBone(W/2-ts*0.95,PLAY_H*0.175,-0.42+Math.sin(realTime*2)*0.12,14,false);
+  drawBone(W/2+ts*0.95,PLAY_H*0.175,0.42-Math.sin(realTime*2)*0.12,14,false);
+  txt(T('logo'),W/2,PLAY_H*0.26,ts,'#f4ecd8');
+  const ly=PLAY_H*0.40, lh=Math.max(22,PLAY_H*0.036);
+  txt(T('tag1'),W/2,ly,16,'#ffffff','center','600');
+  txt(T('tag2'),W/2,ly+lh,16,'#ffffff','center','600');
+  txt(T('tag3'),W/2,ly+lh*2,16,'#ffb830','center','600');
+  txt(T('tag4'),W/2,ly+lh*3,16,'#9be05a','center','600');
+  txt(T('tag5'),W/2,ly+lh*3.85,13,'rgba(255,255,255,0.55)','center','normal');
+  txt(T('tag6'),W/2,ly+lh*4.7,13,'rgba(255,255,255,0.5)','center','normal');
+  if(best>0) txt(T('best')+best,W/2,ly+lh*5.5,15,'rgba(255,255,255,0.75)');
+  const a=0.55+0.45*Math.abs(Math.sin(realTime*3.2));
+  txt(T('start'),W/2,PLAY_H*0.72,22,'#ffd94d','center','bold',a);
+}
+function drawOver(){
+  ctx.fillStyle='rgba(10,8,18,0.66)'; ctx.fillRect(0,0,W,PLAY_H);
+  txt(T('over'),W/2,PLAY_H*0.24,Math.min(W*0.17,74),'#e05545');
+  txt(T('score')+score,W/2,PLAY_H*0.36,34,'#f4ecd8');
+  txt(T('delivered')+delivered,W/2,PLAY_H*0.43,16,'rgba(255,255,255,0.75)','center','600');
+  if(newBest){
+    const a=0.55+0.45*Math.abs(Math.sin(realTime*5));
+    txt(T('newBest'),W/2,PLAY_H*0.50,24,'#ffd94d','center','bold',a);
+  }else{
+    txt(T('best')+best,W/2,PLAY_H*0.50,18,'rgba(255,255,255,0.7)');
+  }
+  const b=btnRect();
+  ctx.globalAlpha=(overDelay>0)?0.5:1;
+  ctx.fillStyle='#5a2d00'; rr(b.x,b.y+4,b.w,b.h,14); ctx.fill();
+  ctx.fillStyle='#e8842c'; rr(b.x,b.y,b.w,b.h,14); ctx.fill();
+  txt(T('again'),b.x+b.w/2,b.y+b.h/2,24,'#ffffff');
+  ctx.globalAlpha=1;
+  txt(T('orR'),W/2,b.y+b.h+26,13,'rgba(255,255,255,0.5)','center','normal');
+}
+function render(){
+  /* поля по краям (экран шире/выше игрового поля) */
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.fillStyle='#07080c'; ctx.fillRect(0,0,RW,RH);
+  /* дальше рисуем в ИГРОВЫХ единицах: поле масштабируется и центрируется */
+  ctx.setTransform(DPR*SCALE,0,0,DPR*SCALE,DPR*VX,DPR*VY);
+  ctx.save();
+  ctx.beginPath(); ctx.rect(0,0,W,H); ctx.clip(); // ничего не вылезает за поле
+  /* небо */
+  ctx.fillStyle=skyGradient(); ctx.fillRect(0,0,W,PLAY_H);
+  drawSky();     // млечный путь, звёзды, падающие звёзды
+  drawMoon();    // месяц с ореолом
+  /* ГОРОД в три слоя */
+  drawSkyline();
+  /* туман у самой земли: сшивает город с площадкой */
+  const fg=ctx.createLinearGradient(0,groundY-70,0,groundY+6);
+  fg.addColorStop(0,'rgba(74,58,102,0)'); fg.addColorStop(1,'rgba(84,66,112,0.42)');
+  ctx.fillStyle=fg; ctx.fillRect(0,groundY-70,W,76);
+  /* тряска экрана */
+  let ox=0,oy=0;
+  if(shakeT>0){ const k=(shakeT/0.25)*shakeAmp; ox=rand(-k,k); oy=rand(-k,k); }
+  ctx.save();
+  ctx.translate(ox,oy);
+  drawGround();
+  /* фонари: тёплые пятна у каждой будки, у горячей ярче и дышит */
+  for(const sd of [-1,1]){
+    const lx=(sd===-1)?kennelLX:kennelRX, hot=hotAt(sd);
+    const rad=hot?92:58, pulse=hot?(1+0.06*Math.sin(realTime*3.4)):1;
+    const lg=ctx.createRadialGradient(lx,groundY-KH*0.5,2,lx,groundY-KH*0.5,rad*pulse);
+    lg.addColorStop(0,hot?'rgba(255,205,90,0.30)':'rgba(255,225,170,0.15)');
+    lg.addColorStop(1,'rgba(255,205,90,0)');
+    ctx.fillStyle=lg;
+    ctx.beginPath(); ctx.arc(lx,groundY-KH*0.5,rad*pulse,0,TAU); ctx.fill();
+  }
+  drawKennel(-1); drawKennel(1);
+  for(let i=0;i<bones.length;i++){ const b=bones[i]; drawBone(b.x,b.y,b.rot,13*BONE_S,b.poison,b.kind,b.sly); }
+  for(let i=0;i<fxBones.length;i++){
+    const b=fxBones[i];
+    if(b.mode==='arc'){
+      const t=clamp(b.t/b.dur,0,1);
+      drawBone(lerp(b.x0,b.x1,t),lerp(b.y0,b.y1,t)-Math.sin(Math.PI*t)*74,b.rot,11*BONE_S,false);
+    }else drawBone(b.x,b.y,b.rot,12*BONE_S,false);
+  }
+  drawDog();
+  if(vacT>0){    // 🌀 ранец-пылесос за спиной, шланг через голову к пасти
+    const bpx=dog.x-dog.dir*34*DOG_S, m=mouthPos(), wob=Math.sin(realTime*10)*4*DOG_S;
+    ctx.fillStyle='#8f5fe8';
+    rr(bpx-13*DOG_S,groundY-58*DOG_S,26*DOG_S,34*DOG_S,8*DOG_S); ctx.fill();
+    ctx.fillStyle='#b98cff';
+    rr(bpx-13*DOG_S,groundY-58*DOG_S,26*DOG_S,11*DOG_S,6*DOG_S); ctx.fill();
+    ctx.strokeStyle='#4c2a8f'; ctx.lineWidth=2;
+    rr(bpx-13*DOG_S,groundY-58*DOG_S,26*DOG_S,34*DOG_S,8*DOG_S); ctx.stroke();
+    ctx.strokeStyle='#4c2a8f'; ctx.lineWidth=5*DOG_S; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(bpx,groundY-56*DOG_S);
+    ctx.quadraticCurveTo(dog.x-dog.dir*6*DOG_S,groundY-98*DOG_S+wob,m.x+dog.dir*7*DOG_S,m.y-3*DOG_S);
+    ctx.stroke();
+    ctx.fillStyle='#2a175c';
+    ctx.beginPath(); ctx.arc(m.x+dog.dir*9*DOG_S,m.y-3*DOG_S,5.2*DOG_S,0,TAU); ctx.fill();
+    ctx.fillStyle='#b98cff';
+    ctx.beginPath(); ctx.arc(m.x+dog.dir*9*DOG_S,m.y-3*DOG_S,2.4*DOG_S,0,TAU); ctx.fill();
+  }
+  if(auraT>0){   // 🛡 пузырь вокруг собаки, мигает на исходе
+    const fade=auraT<1.2?(0.35+0.65*Math.abs(Math.sin(realTime*14))):1;
+    ctx.globalAlpha=0.55*fade;
+    ctx.strokeStyle='#7fd8ff'; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.arc(dog.x,groundY-34*DOG_S,54*DOG_S+3*Math.sin(realTime*5),0,TAU); ctx.stroke();
+    ctx.globalAlpha=0.13*fade; ctx.fillStyle='#7fd8ff'; ctx.fill();
+    ctx.globalAlpha=1;
+  }
+  if(invEndT>0){ // ⇄ КОНЕЦ инверсии — вспышка на весь экран, чтобы нельзя было не заметить
+    const k=clamp(invEndT/CONFIG.invEndFlash,0,1);
+    ctx.globalAlpha=0.72*k; ctx.fillStyle='#f6f2e6'; ctx.fillRect(0,0,W,PLAY_H);
+    ctx.globalAlpha=1;
+    const pop=1+0.30*k;
+    txt(T('mirrorOff'),W/2,PLAY_H*0.40,Math.min(W*0.088,34)*pop,'rgba(24,20,16,'+(0.55+0.45*k)+')','center','800');
+    txt(T('mirrorOffSub'),W/2,PLAY_H*0.40+32,15,'rgba(24,20,16,'+(0.45+0.4*k)+')','center','700');
+  }
+  if(invT>0){    // ⇄ пока идёт инверсия — жирная рамка вокруг всей сцены
+    const fade=invT<1.2?(0.35+0.65*Math.abs(Math.sin(realTime*14))):1;
+    ctx.globalAlpha=0.9*fade;
+    ctx.strokeStyle=(Math.floor(realTime*6)%2)?'#ffffff':'#ff8a3d';
+    ctx.lineWidth=7;
+    ctx.strokeRect(3.5,3.5,W-7,PLAY_H-7);
+    ctx.globalAlpha=1;
+    const left=Math.ceil(invT);
+    txt(T('mirrorBanner')+CONFIG.invertHotMult+'   '+left,W/2,PLAY_H-14,15,'#ffffff','center','700');
+  }
+  drawParticles();
+  drawFloaters();
+  ctx.restore();
+  drawPad(); // пульт поверх всего: сцена в него не залезает
+  /* интерфейс */
+  if(state==='play'||state==='over') drawHUD();
+  if(state==='start') drawStart();
+  if(state==='over') drawOver();
+  drawMute();
+  drawLang();
+  ctx.restore(); // снимаем обрезку поля
+}
+
+/* ---------- поехали ---------- */
+requestAnimationFrame(frame);
+
+/* отладочный хук: не влияет на геймплей */
+window.__dbg=function(){
+  return {state:state,score:score,hunger:hunger,carrying:carrying,
+    hotSide:(hotSide===-1?'L':'R'),poisonRatio:curPoisonRatio(),
+    dogX:dog.x,highScore:best};
+};
+window.__dbg2=function(){
+  return {state:state,score:score,hunger:Math.round(hunger),carrying:carrying,
+    hotSide:(hotSide===-1?'L':'R'),hotMult:hotMult,hotT:+hotT.toFixed(2),stunT:+stunT.toFixed(2),
+    dogX:Math.round(dog.x),groundY:Math.round(groundY),W:Math.round(W),H:Math.round(H),
+    kennelLX:Math.round(kennelLX),kennelRX:Math.round(kennelRX),
+    bones:bones.filter(function(b){return !b.dead;}).map(function(b){
+      return {x:Math.round(b.x),y:Math.round(b.y),poison:!!b.poison,sly:!!b.sly,kind:b.kind||'norm'};}),
+    speedT:+speedT.toFixed(2),slowT:+slowT.toFixed(2),auraT:+auraT.toFixed(2),vacT:+vacT.toFixed(2),invT:+invT.toFixed(2),
+    drain:+curDrain().toFixed(2),best:best};
+};
+</script>
+</body>
+</html>
