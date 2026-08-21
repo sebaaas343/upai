@@ -342,6 +342,8 @@ let W=1,H=1,DPR=1,DS=1,groundY=1,KW=90,KH=85,kennelLX=50,kennelRX=350;
 let sky=null;                      // геометрия параллакс-города (считается по размеру)
 let rain=null;                     // пул капель (переиспользуются, не создаются в кадре)
 let stars=null;                    // звёзды (строятся один раз на раскладку)
+let fgGrass=null;                  // трава переднего плана (пересобирается на раскладку)
+let lanternGrad=null;              // градиент фонарика: локальные координаты, создаётся один раз
 let milkyGrad=null, milkyH=0;      // кэш градиента млечного пути
 let shootT=5, shoot=null;          // таймер до падающей звезды и она сама
 let lastPaw=0;                     // на каком пути топнули в прошлый раз
@@ -377,6 +379,7 @@ function resize(){
   groundY=PLAY_H-Math.max(40,PLAY_H*0.07);
   sky=null;                // размер сменился — геометрию города пересчитаем заново
   stars=null;              // ...и звёздное небо тоже
+  fgGrass=null;            // ...и трава переднего плана
   KW=clamp(W*0.128,48,62); // будки МАЛЕНЬКИЕ и далёкие — между ними настоящая перебежка, как на мониторе
   KH=KW*0.94;
   kennelLX=KW*0.52+4;      // центр левой будки
@@ -1490,6 +1493,50 @@ function drawGround(){
     ctx.fillRect(px,py,2,1.5);
   }
 }
+/* ---- ТЕНИ. Это механика, а не косметика: растущая тень — единственный
+   способ видеть, КУДА упадёт кость, не провожая её глазами. Альфа растёт
+   квадратично, чтобы десяток теней высоко в небе не превращался в мусор:
+   тень заметна только у тех костей, которые вот-вот приземлятся. ---- */
+function drawShadows(){
+  ctx.fillStyle='rgba(0,0,0,0.30)';
+  ctx.beginPath(); ctx.ellipse(dog.x,groundY+3,30*DOG_S*(1+0.10*dog.squash),5.5*DOG_S,0,0,TAU); ctx.fill();
+  ctx.fillStyle='#000';
+  for(let i=0;i<bones.length;i++){
+    const b=bones[i]; if(b.dead) continue;
+    const q=clamp(b.y/(groundY-7),0,1); if(q<0.12) continue;   // высоко = тени всё равно не видно
+    const rx=13*BONE_S*(0.35+0.75*q);
+    ctx.globalAlpha=0.04+0.28*q*q;                              // число, без строки и парсинга цвета
+    ctx.beginPath(); ctx.ellipse(b.x,groundY+3,rx,rx*0.30,0,0,TAU); ctx.fill();
+  }
+  ctx.globalAlpha=1;
+}
+/* ---- ПЕРЕДНИЙ ПЛАН: трава ближе камеры. Город едет с параллаксом
+   0.045–0.19, трава — 0.34: она обгоняет сцену, и двор получает глубину
+   не только назад, но и вперёд. Запас ±25% ширины — под этот же сдвиг. ---- */
+function buildFgGrass(){
+  fgGrass=[];
+  const depth=Math.max(12,PLAY_H-groundY-4);
+  for(let i=0,n=Math.round(W/6);i<n;i++){
+    fgGrass.push({x:rand(-W*0.25,W*1.25),y:groundY+rand(8,depth),
+      h:rand(9,20),ph:rand(0,TAU),w:rand(1.6,2.8),
+      col:'rgba('+(20+Math.round(rand(0,14)))+','+(34+Math.round(rand(0,16)))+','+(16+Math.round(rand(0,10)))+',0.9)'});
+  }
+  fgGrass.sort(function(a,b){return a.y-b.y;});   // дальние стебли рисуем первыми
+}
+function drawFgGrass(){
+  if(!fgGrass) buildFgGrass();
+  const dx=-(dog.x-W/2)*0.34;
+  ctx.lineCap='round';
+  for(let i=0;i<fgGrass.length;i++){
+    const g=fgGrass[i], gx=g.x+dx;
+    if(gx<-8||gx>W+8) continue;
+    const lean=Math.sin(realTime*0.9+g.ph)*2.2;
+    ctx.strokeStyle=g.col; ctx.lineWidth=g.w;
+    ctx.beginPath(); ctx.moveTo(gx,g.y);
+    ctx.quadraticCurveTo(gx+lean*0.4,g.y-g.h*0.6,gx+lean,g.y-g.h);
+    ctx.stroke();
+  }
+}
 /* ---------- ЗВЁЗДНОЕ НЕБО ----------
    Три слоя звёзд: пыль (мелкая, почти неподвижная), обычные и крупные
    с лучиками. Плюс млечный путь диагональной полосой и редкие падающие
@@ -1806,7 +1853,7 @@ function drawKennel(side){
     /* размер таблички привязан к будке — иначе на маленькой будке она выглядит вывеской.
        Чем жирнее множитель, тем ярче и крупнее — ×5 видно с другого конца двора. */
     const big=hm>=4, mid=hm>=3;
-    const grow=big?1.28:(mid?1.08:1);
+    const grow=(big?1.28:(mid?1.08:1))*(1+0.30*hotPunch);   // прыжок в момент перевыбора
     const bw=clamp(w*0.75,34,50)*grow, bh=bw*0.64, fs=bw*0.42;
     const by=-h*1.02-bh*0.75+Math.sin(realTime*(big?6:4))*(big?4.5:3);
     if(big){ // сияние вокруг щедрой таблички
@@ -1820,6 +1867,36 @@ function drawKennel(side){
     txt('×'+hm,0,by+fs*0.05,fs,'#3a1c00','center','bold',blinkOn?1:0.22);
     ctx.globalAlpha=1;
   }
+  /* фонарик на карнизе, смотрит во двор; качается, при доставке подпрыгивает
+     вместе с будкой (sq). У горячей — горит и собирает мотыльков. */
+  const ax=-side*w*0.62, ay=-h*0.56;
+  const lit=hot&&blinkOn;
+  ctx.save(); ctx.translate(ax,ay);
+  ctx.rotate(Math.sin(realTime*1.8+side*1.3)*0.14+sq*0.5*Math.sin(realTime*9));
+  ctx.strokeStyle='#3a2a1e'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,9); ctx.stroke();
+  if(lit){
+    if(!lanternGrad){
+      lanternGrad=ctx.createRadialGradient(0,15,1,0,15,26);
+      lanternGrad.addColorStop(0,'rgba(255,214,110,0.55)'); lanternGrad.addColorStop(1,'rgba(255,214,110,0)');
+    }
+    ctx.fillStyle=lanternGrad; ctx.beginPath(); ctx.arc(0,15,26,0,TAU); ctx.fill();
+  }
+  ctx.fillStyle='#2b2018'; rr(-4.5,8,9,3,1.5); ctx.fill();
+  ctx.fillStyle=lit?'#ffd45e':'#5c4c34'; rr(-3.5,11,7,9,2.5); ctx.fill();
+  if(lit){ ctx.fillStyle='#fff3c4'; ctx.beginPath(); ctx.arc(0,15.5,2,0,TAU); ctx.fill(); }
+  ctx.fillStyle='#2b2018'; rr(-4.5,20,9,2.5,1.2); ctx.fill();
+  ctx.restore();
+  if(lit){                                   // мотыльки вьются только у зажжённого
+    ctx.fillStyle='rgba(240,228,190,0.85)';
+    for(let mi=0;mi<3;mi++){
+      const t=realTime*(1.6+mi*0.5)+mi*2.1+side*3;
+      ctx.beginPath();
+      ctx.arc(ax+Math.cos(t)*(10+4*Math.sin(t*2.3)),ay+15+Math.sin(t*1.4)*(8+3*Math.cos(t*1.9)),
+              1.6+0.5*Math.sin(t*7),0,TAU);
+      ctx.fill();
+    }
+  }
   ctx.restore();
 }
 function drawDog(){
@@ -1830,6 +1907,10 @@ function drawDog(){
   const moving=Math.abs(dog.vx)>20;
   const ph=dog.step*0.22/DOG_S;
   const stunned=stunT>0;
+  /* испуг: череп падает прямо на собаку — глаз распахнут, ухо прижато */
+  let scare=false;
+  for(let i=0;i<bones.length;i++){ const b=bones[i];
+    if(!b.dead&&b.poison&&!b.sly&&Math.abs(b.x-dog.x)<80&&b.y>groundY-300&&b.y<groundY-40){ scare=true; break; } }
   const main='#e2a24f', dark='#c78a3c', light='#f3c98a';
   /* хвост */
   const wag=Math.sin(realTime*(carrying?7:13))*0.5;
@@ -1865,11 +1946,17 @@ function drawDog(){
   ctx.beginPath(); ctx.ellipse(10,3,9,6,0,0,TAU); ctx.fill();
   ctx.fillStyle='#3a2a1e';
   ctx.beginPath(); ctx.arc(17,1,3,0,TAU); ctx.fill();
+  if(speedT>0&&!stunned){ // язык на ветру — рывок видно по морде, не только по шлейфу
+    ctx.fillStyle='#ff8fa3';
+    ctx.save(); ctx.translate(13,7); ctx.rotate(0.35+0.10*Math.sin(realTime*22));
+    ctx.beginPath(); ctx.ellipse(2.5,4,3,6,0,0,TAU); ctx.fill();
+    ctx.restore();
+  }
   /* ухо */
   ctx.fillStyle=dark;
   ctx.save();
   ctx.translate(-4,-9);
-  ctx.rotate(0.5+(moving?0.22:0)+Math.sin(realTime*9)*0.05);
+  ctx.rotate((stunned?1.05:0.5+(moving?0.22:0)+(scare?0.30:0))+Math.sin(realTime*9)*0.05);
   ctx.beginPath(); ctx.ellipse(0,6,5.5,10,0,0,TAU); ctx.fill();
   ctx.restore();
   /* глаз */
@@ -1879,10 +1966,16 @@ function drawDog(){
     ctx.moveTo(2,-6); ctx.lineTo(8,0); ctx.moveTo(8,-6); ctx.lineTo(2,0);
     ctx.stroke();
   }else{
-    ctx.fillStyle='#fff';
-    ctx.beginPath(); ctx.arc(5,-3,3.6,0,TAU); ctx.fill();
-    ctx.fillStyle='#26160c';
-    ctx.beginPath(); ctx.arc(6.1,-2.6,1.8,0,TAU); ctx.fill();
+    const blink=!scare&&(realTime%3.4)<0.11;  // моргает; когда страшно — нет
+    if(blink){
+      ctx.strokeStyle='#26160c'; ctx.lineWidth=2; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(2,-3); ctx.lineTo(8.5,-3); ctx.stroke();
+    }else{
+      ctx.fillStyle='#fff';
+      ctx.beginPath(); ctx.arc(5,-3,scare?4.8:3.6,0,TAU); ctx.fill();
+      ctx.fillStyle='#26160c';
+      ctx.beginPath(); ctx.arc(scare?5.4:6.1,scare?-3.2:-2.6,scare?1.3:1.8,0,TAU); ctx.fill();
+    }
   }
   /* кость в зубах */
   if(carrying) drawBone(15,7,-0.14,12*(CONFIG.boneScale/CONFIG.dogScale),false,undefined);
@@ -2102,6 +2195,7 @@ function render(){
     ctx.fillStyle=lg;
     ctx.beginPath(); ctx.arc(lx,groundY-KH*0.5,rad*pulse,0,TAU); ctx.fill();
   }
+  drawShadows();
   drawKennel(-1); drawKennel(1);
   for(let i=0;i<bones.length;i++){ const b=bones[i]; drawBone(b.x,b.y,b.rot,13*BONE_S,b.poison,b.kind,b.sly); }
   for(let i=0;i<fxBones.length;i++){
@@ -2137,6 +2231,7 @@ function render(){
     ctx.globalAlpha=0.13*fade; ctx.fillStyle='#7fd8ff'; ctx.fill();
     ctx.globalAlpha=1;
   }
+  drawFgGrass();   // передний план — ПОД баннером инверсии: стебли не перечёркивают таймер
   if(invEndT>0){ // ⇄ КОНЕЦ инверсии — вспышка на весь экран, чтобы нельзя было не заметить
     const k=clamp(invEndT/CONFIG.invEndFlash,0,1);
     ctx.globalAlpha=0.72*k; ctx.fillStyle='#f6f2e6'; ctx.fillRect(0,0,W,PLAY_H);
