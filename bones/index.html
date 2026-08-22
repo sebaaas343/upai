@@ -86,10 +86,11 @@ const CONFIG = {
                          // ошибки (яд −13, уроненная кость, промахи) роют яму — умираешь ОТ НИХ
   hungerRefill   : 8,    // еда за доставку в обычную будку (горячая множит: 16 / 24 / 32)
   /* ВОЛШЕБНАЯ КОСТЬ: ловится на лету, мгновенно заливает сытость до максимума.
-     Выпадает ТОЛЬКО когда сытость ниже magicNeed — всегда спасение,
-     никогда не сгорает впустую на полной шкале. */
-  magicChance    : 0.015,
-  magicNeed      : 55,
+     Шанс растёт ПЛАВНО по мере голода, а не включается обрывом: раньше на 56
+     единицах сытости он был ровно нулевой, а на 54 — сразу полный.
+     Ноль при magicNeed и выше, magicChance при пустой шкале, линейно между. */
+  magicChance    : 0.030,   // предел, когда шкала на нуле
+  magicNeed      : 70,      // выше этой сытости не выпадает вовсе
   /* ТРИ ПРИКОЛА. Ловятся на лету, работают от РЕАЛЬНОГО времени и входят в игру
      ЛЕСЕНКОЙ: пылесос с 60-й (чистая награда, правил не меняет), щит с 90-й
      (защита — в гущу смертей), инверсия со 150-й (переворот правил —
@@ -533,7 +534,10 @@ function curDeliveryPts(){ return Math.min(CONFIG.pointsCold+combo*CONFIG.comboS
 function curInvertChance(){ return runTime<CONFIG.invertFrom?0:CONFIG.invertChance; }
 function curAuraChance(){ return runTime<CONFIG.auraFrom?0:CONFIG.auraChance; }
 function curVacChance(){ return runTime<CONFIG.vacFrom?0:CONFIG.vacChance; }
-function curMagicChance(){ return hunger<CONFIG.magicNeed?CONFIG.magicChance:0; }
+function curMagicChance(){
+  if(hunger>=CONFIG.magicNeed) return 0;
+  return CONFIG.magicChance*(1-hunger/CONFIG.magicNeed);
+}
 function specialShare(){ return curMagicChance()+curAuraChance()+curVacChance()+curInvertChance(); }
 function curSpawnInterval(){
   const edible=(1-specialShare())*(1-curPoisonRatio())*(1-curSpeedChance()-curSlowChance());
