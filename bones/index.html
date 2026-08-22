@@ -847,7 +847,7 @@ function gameOver(){
      значении и спорило с грустной позой: язык наружу при рывке, крестики в
      глазах и тряска головы при оглушении, лапы застывшие посреди шага.
      Гасим здесь, одним местом, а не оговорками «если не sad» по всей отрисовке. */
-  speedT=0; slowT=0; stunT=0; dog.vx=0; dog.chomp=0;
+  speedT=0; slowT=0; stunT=0; dog.vx=0; dog.chomp=0; dog.hop=0;   // умер сразу после доставки — иначе висит в прыжке
   SFX.gameOver();
 }
 
@@ -976,7 +976,11 @@ function invertPickup(){
 }
 /* пылесос засчитывает кость как доставку в обычную будку, пасть при этом свободна */
 function vacSwallow(){
-  score+=curDeliveryPts(); delivered++; combo++;   // всосанная — тоже чистая доставка
+  /* combo++ ПЕРВЫМ — как в deliverBone. Иначе всосанная кость даёт на шаг
+     серии меньше, чем обещает шапка: тот же рассинхрон, что чинили в доставке,
+     просто в соседней функции. */
+  combo++;
+  score+=curDeliveryPts(); delivered++;   // всосанная — тоже чистая доставка
   /* сытость как с горячей будки ×2 (16), а не как с обычной: пылесос редкий,
      пусть кормит по-настоящему */
   hunger=Math.min(CONFIG.hungerMax,hunger+CONFIG.hungerRefill*CONFIG.hotMults[0]);
@@ -996,7 +1000,10 @@ function deliverBone(side){
   const pts=curDeliveryPts();
   score+=pts; delivered++;
   if(combo>0&&combo%5===0) SFX.bark();   // серия крепнет — собака довольна
-  /* обычная будка = очко и мало еды; горячая = еда ×(2…5) и НИ одного очка */
+  /* ОБЕ будки дают ОДИНАКОВЫЕ очки (curDeliveryPts от серии, горячесть на них
+     не влияет). Разница только в еде: обычная даёт hungerRefill, горячая
+     умножает её на ×2…×4. Прежний комментарий утверждал обратное — «горячая
+     даёт НИ одного очка» и «×2…×5» — и то и другое неправда, hotMults [2,3,4]. */
   const food=CONFIG.hungerRefill*(hot?hm:1);
   hunger=Math.min(CONFIG.hungerMax,hunger+food);
   scorePunch=1; dog.hop=1;   // в собственный праздник собака больше не стоит столбом
@@ -2114,6 +2121,13 @@ function drawKennel(side){
     ctx.fillStyle=big?'#fff6cf':'#ffe3b8'; rr(-bw/2,by-bh/2,bw,bh*0.16,bh*0.09); ctx.fill();
     txt('×'+hm,0,by+fs*0.05,fs,'#3a1c00','center','bold',blinkOn?1:0.22);
     ctx.restore();
+    ctx.globalAlpha=1;
+  } else {
+    /* Холодная будка была просто бурым домиком с дырой — в стоп-кадре не
+       читалось, что это ТОЖЕ цель. Тусклая косточка над проёмом говорит
+       «сюда тоже можно», не споря с яркой табличкой горячей. */
+    ctx.globalAlpha=0.30;
+    drawBone(0,-h*0.52,-0.22,w*0.14,false);
     ctx.globalAlpha=1;
   }
   /* фонарик на карнизе, смотрит во двор; качается, при доставке подпрыгивает
