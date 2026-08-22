@@ -477,7 +477,11 @@ const SFX={
     tone(250,0.12,'square',0.11,110,0.05);
   },
   /* топот лапы: очень тихий низкий шорох, иначе забивает всё остальное */
-  paw:function(){ noiseBurst(0.035,0.045,380); },
+  /* Шаг был тише всего остального впятеро (0.045 против 0.25 у ловли) и
+     наглухо задавлен фильтром 380 Гц — его просто не было слышно. Причина
+     понятна: он щёлкал ~18 раз в секунду, на нормальной громкости это
+     трещотка. Лечим обе половины: реже (см. порог в step) и слышно. */
+  paw:function(){ noiseBurst(0.045,0.13,760); },
   hotSwitch:function(){ tone(880,0.06,'triangle',0.09,1150); },
   uiTap:function(){ tone(500,0.05,'square',0.09,700); },
   gameOver:function(){ tone(440,0.25,'triangle',0.18,330); tone(330,0.30,'triangle',0.18,250,0.22); tone(220,0.60,'triangle',0.20,110,0.46); }
@@ -578,6 +582,13 @@ function curBadFall(){
   return base+rate*(runTime-CONFIG.arcTime);
 }
 function mouthPos(){ return {x:dog.x+37*DOG_S*dog.dir, y:groundY-34*DOG_S}; }
+/* ВИЗУАЛЬНОЕ направление и подъём. Спрайт зеркалится по dog.face (доворот
+   0.1с), а всё навесное считалось от МГНОВЕННОГО dog.dir и от земли — поэтому
+   на развороте ранец прыгал на другую сторону раньше тела, а на подскоке
+   оставался внизу. Логика ловли и притяжения по-прежнему на dir (mouthPos). */
+function dogFaceDir(){ return dog.face<0?-1:1; }
+function dogLift(){ return dog.hop>0?Math.sin(Math.PI*dog.hop)*9*DOG_S:0; }
+function mouthVis(){ return {x:dog.x+37*DOG_S*dogFaceDir(), y:groundY-34*DOG_S-dogLift()}; }
 function muteRect(){ return {x:W-46,y:10+SAFE_TOP,w:36,h:36}; }
 /* Кнопка языка — ТОЛЬКО на стартовом экране, и внизу по центру. В правом
    верхнем углу она садилась на шкалу голода, а в бою это лишняя мишень. */
@@ -832,6 +843,11 @@ function gameOver(){
   if(newBest){ best=score; lsSet('best4',best); } // рекорд пишется РОВНО один раз
   shakeT=0.3; shakeAmp=5;
   vacT=0; auraT=0; invT=0; invEndT=0; vacHumStop();
+  /* step() после смерти не идёт, поэтому всё это замирало на последнем игровом
+     значении и спорило с грустной позой: язык наружу при рывке, крестики в
+     глазах и тряска головы при оглушении, лапы застывшие посреди шага.
+     Гасим здесь, одним местом, а не оговорками «если не sad» по всей отрисовке. */
+  speedT=0; slowT=0; stunT=0; dog.vx=0; dog.chomp=0;
   SFX.gameOver();
 }
 
@@ -849,7 +865,10 @@ function catchBone(b){
   dog.squash=1; dog.chomp=1;   // пасть щёлкает: ловля наконец видна по телу
   hitStop=Math.max(hitStop,0.03);
   const m=mouthPos();
-  for(let i=0;i<8;i++) addP({kind:'spark',x:m.x,y:m.y,vx:rand(-90,90),vy:rand(-130,10),g:320,life:rand(0.25,0.45),max:0.45,size:rand(1.5,3),color:'#fff6dd'});
+  /* Летят ВПЕРЁД и вниз, а не веером вверх. Раньше половина искр уходила
+     назад поверх морды, и на снимках у собаки вместо головы белое пятно:
+     частицы рисуются после собаки, поэтому перекрывали всё лицо. */
+  for(let i=0;i<8;i++) addP({kind:'spark',x:m.x+dog.dir*4,y:m.y+3,vx:dog.dir*rand(25,150),vy:rand(-70,45),g:320,life:rand(0.22,0.38),max:0.38,size:rand(1.3,2.4),color:'#fff6dd'});
   SFX.catch();
 }
 function auraBlock(b){
@@ -869,7 +888,7 @@ function slowPickup(){
 }
 function speedPickup(){
   speedT=CONFIG.speedBoostTime; slowT=0; // рывок сбрасывает тяжесть
-  dog.squash=1;
+  dog.squash=1; dog.chomp=1;
   addFloater(dog.x,groundY-95*DOG_S,T('zoom'),'#ffd94d',26);
   for(let i=0;i<12;i++) addP({kind:'spark',x:dog.x,y:groundY-40*DOG_S,vx:rand(-160,160),vy:rand(-200,-30),g:380,life:rand(0.3,0.55),max:0.55,size:rand(2,3.5),color:'#ffd94d'});
   SFX.catch(); SFX.hotSwitch();   // яркий «вжух» из двух готовых звуков
@@ -918,7 +937,7 @@ function vacHumStop(){
 }
 function magicPickup(){
   hunger=CONFIG.hungerMax;               // сразу до краёв, сколько бы ни было
-  dog.squash=1;
+  dog.squash=1; dog.chomp=1;
   addFloater(dog.x,groundY-95*DOG_S,T('fed'),'#ff9ae0',32);
   const cols=['#ff9ae0','#9ae0ff','#ffe98a','#b8ff9a'];
   for(let i=0;i<26;i++) addP({kind:'spark',x:dog.x,y:groundY-40*DOG_S,vx:rand(-210,210),vy:rand(-260,-40),g:340,life:rand(0.4,0.8),max:0.8,size:rand(2,4),color:cols[i%cols.length]});
@@ -926,7 +945,7 @@ function magicPickup(){
 }
 function auraPickup(){
   auraT=CONFIG.auraTime;
-  dog.squash=1;
+  dog.squash=1; dog.chomp=1;
   addFloater(dog.x,groundY-95*DOG_S,T('shieldGet'),'#7fd8ff',28);
   for(let i=0;i<18;i++) addP({kind:'spark',x:dog.x,y:groundY-40*DOG_S,vx:rand(-170,170),vy:rand(-210,-20),g:330,life:rand(0.35,0.7),max:0.7,size:rand(2,3.5),color:i%2?'#7fd8ff':'#e8faff'});
   SFX.deliverHot();
@@ -934,7 +953,7 @@ function auraPickup(){
 function vacPickup(){
   vacT=CONFIG.vacTime;
   vacHumStart();
-  dog.squash=1;
+  dog.squash=1; dog.chomp=1;
   addFloater(dog.x,groundY-95*DOG_S,T('vac'),'#b98cff',28);
   for(let i=0;i<18;i++) addP({kind:'spark',x:dog.x,y:groundY-40*DOG_S,vx:rand(-170,170),vy:rand(-210,-20),g:330,life:rand(0.35,0.7),max:0.7,size:rand(2,3.5),color:i%2?'#b98cff':'#e6dcff'});
   SFX.hotSwitch();
@@ -970,8 +989,12 @@ function deliverBone(side){
   carrying=false;
   const hot=hotAt(side);            // во время зеркала горячие обе
   const hm=curHotMult();
+  /* combo++ ДО подсчёта: раньше очки брались по старой серии, а шапка уже
+     показывала новую — в одном кадре «+18» над будкой и «+20 за кость» вверху
+     про одну и ту же кость. Теперь обещание шапки выполняется. */
+  combo++;
   const pts=curDeliveryPts();
-  score+=pts; delivered++; combo++;
+  score+=pts; delivered++;
   if(combo>0&&combo%5===0) SFX.bark();   // серия крепнет — собака довольна
   /* обычная будка = очко и мало еды; горячая = еда ×(2…5) и НИ одного очка */
   const food=CONFIG.hungerRefill*(hot?hm:1);
@@ -983,17 +1006,24 @@ function deliverBone(side){
   /* Раньше тут спавнились ТРИ надписи в одну точку: «+40», «×4!» и «СЫТНО».
      Они ложились друг на друга и на бейдж будки — не прочесть ни сумму, ни
      множитель. Теперь очки и множитель одной строкой, еда — следом. */
-  addFloater(cx,groundY-KH-(hot?74:34), hot?('+'+pts+'  ×'+hm+'!'):('+'+pts), hot?'#ffd94d':'#f2ead8', hot?28:26);
-  if(hot) addFloater(cx,groundY-KH-108,T('yum')+Math.round(food),'#8fe06a',22,0.25);
+  /* Очки и множитель ЕДЫ — разные валюты, и склеенные в одну жёлтую строку
+     «+18 ×4!» читались как «18 умножить на 4». Множитель теперь стоит только
+     рядом с едой, где он и работает. */
+  addFloater(cx,groundY-KH-(hot?74:34),'+'+pts,hot?'#ffd94d':'#f2ead8',hot?28:26);
+  if(hot) addFloater(cx,groundY-KH-108,T('yum')+Math.round(food)+'  ×'+hm,'#8fe06a',22,0.18);
   deliverFlash=0.5; deliverSide=side;   // будка вспыхивает светом
   const n=hot?16:7;
-  for(let i=0;i<n;i++) addP({kind:'coin',x:cx,y:groundY-KH*0.6,vx:rand(-140,140),vy:rand(-260,-50),g:520,life:rand(0.35,0.8),max:0.8,size:rand(2.2,4.5),color:(hot&&Math.random()<0.5)?'#ff9f2e':'#ffcf4d'});
+  for(let i=0;i<n;i++) addP({kind:'coin',x:cx+rand(-KW*0.5,KW*0.5),y:groundY-KH*0.45,vx:rand(-140,140),vy:rand(-190,-40),g:520,life:rand(0.35,0.8),max:0.8,size:rand(2.2,4.5),color:(hot&&Math.random()<0.5)?'#ff9f2e':'#ffcf4d'});
   if(hot){
     hitStop=Math.max(hitStop,0.05); SFX.deliverHot();
     /* доставка в иксы — маленький праздник: конфетти над будкой и прыгающий множитель */
     shakeT=Math.max(shakeT,0.16); shakeAmp=Math.max(shakeAmp,3);
     const CC=['#ffd94d','#ff8a3d','#8fe06a','#7fd8ff','#ff9ae0'];
-    for(let i=0;i<24;i++) addP({kind:'spark',x:cx+rand(-KW*0.45,KW*0.45),y:groundY-KH*0.95,vx:rand(-150,150),vy:rand(-280,-90),g:430,life:rand(0.45,0.85),max:0.85,size:rand(2,4),color:CC[i%CC.length]});
+    /* фонтан по БОКАМ будки: раньше 24 конфетти и 16 монет проходили ровно
+       сквозь табличку ×N и засыпали цифру — гасили единственный указатель,
+       ради которого к этой будке и бежали */
+    for(let i=0;i<24;i++){ const sd2=(i%2)?1:-1;
+      addP({kind:'spark',x:cx+sd2*rand(KW*0.55,KW*0.95),y:groundY-KH*0.75,vx:sd2*rand(20,150),vy:rand(-260,-80),g:430,life:rand(0.45,0.85),max:0.85,size:rand(2,4),color:CC[i%CC.length]}); }
   }
   else SFX.deliverCold();
   SFX.thunk(0.26); // стук кости о будку — когда дуга долетит
@@ -1114,7 +1144,9 @@ function step(dt){
       if(Math.abs(mv)>cap*0.12) dog.dir=mv>0?1:-1;
       dog.step+=Math.abs(mv);
       /* топаем каждые ~30 единиц пути: лапа коснулась земли */
-      if(dog.step-lastPaw>30*DOG_S){ lastPaw=dog.step; SFX.paw(); }
+      /* 105 вместо 30: при 30 шаг щёлкал 18 раз в секунду — это не бег, а
+         дребезг. Теперь ~5 в секунду, как у настоящей собачьей рыси. */
+      if(dog.step-lastPaw>105*DOG_S){ lastPaw=dog.step; SFX.paw(); }
       dog.vx=mv/dt;
     } else dog.vx=0;
   } else dog.vx=0;
@@ -1263,7 +1295,8 @@ function frame(now){
     if(vacHum&&muted) vacHumStop();
     else if(!vacHum&&!muted&&AC) vacHumStart();
     if(vacHum) vacHum.o.frequency.value=92+Math.sin(realTime*24)*6;   // урчит
-    if(Math.random()<0.6&&state==='play') addP({kind:'spark',x:mouthPos().x+dog.dir*rand(16,40)*DOG_S,y:mouthPos().y-rand(0,20)*DOG_S,vx:-dog.dir*130,vy:10,g:0,life:0.22,max:0.22,size:rand(1.5,2.6),color:'#b98cff'});
+    if(Math.random()<0.6&&state==='play'){ const mv=mouthVis(), fd=dogFaceDir();
+      addP({kind:'spark',x:mv.x+fd*rand(16,40)*DOG_S,y:mv.y-rand(0,20)*DOG_S,vx:-fd*130,vy:10,g:0,life:0.22,max:0.22,size:rand(1.5,2.6),color:'#b98cff'}); }
     if(vacT<=0) vacHumStop();
   } else if(vacHum) vacHumStop();
   if(state==='pause'&&vacHum) vacHumStop();
@@ -1421,7 +1454,7 @@ function drawBone(x,y,rot,r,poison,kind,sly){
      Железная затемнена до холодной стали: раньше она была того же тона, что
      съедобная, и её хватали по ошибке — это промах графики, а не игрока. */
   const body=poison?(sly?'#8f9a3c':'#7ec832'):(magic?'#ffffff':(speed?'#ffd94d':(stone?'#8b93a0':'#f4ecd8')));
-  const lobe=poison?(sly?'#a6a558':'#a05fd0'):(magic?'#ffd9f4':(speed?'#ffe98a':(stone?'#767e8c':'#f4ecd8')));
+  const lobe=poison?(sly?'#a6a558':'#a05fd0'):(magic?'#ffd9f4':(speed?'#ffe98a':(stone?'#98a0ad':'#f4ecd8')));   // шишки СВЕТЛЕЕ стержня, как у всех остальных
   const line=poison?(sly?'#5d6524':'#3f7d1e'):(magic?'#c96fb4':(speed?'#c8931e':(stone?'#3f4653':'#7a6848')));
   if(magic){ ctx.shadowColor='hsl('+Math.round((realTime*140)%360)+',95%,70%)'; ctx.shadowBlur=16; }
   if(speed){ ctx.shadowColor='#ffd94d'; ctx.shadowBlur=10; }
@@ -1478,17 +1511,22 @@ function drawBone(x,y,rot,r,poison,kind,sly){
   }
   if(stone){ // ЖЕЛЕЗНАЯ: блик, заклёпки и гравировка веса
     /* блик рисуем ДО поворота — он должен лежать вдоль стержня, а не по экрану */
-    ctx.fillStyle='rgba(255,255,255,0.26)';
-    rr(-r*0.70,-shaftW*0.32,r*1.40,shaftW*0.24,shaftW*0.12); ctx.fill();
+    ctx.fillStyle='rgba(255,255,255,0.20)';
+    rr(-r*0.62,-shaftW*0.30,r*1.24,shaftW*0.20,shaftW*0.10); ctx.fill();
     ctx.rotate(-rot);
     ctx.fillStyle='#333944';
     for(const e of [-1,1]) for(const k of [-1,1]){
       ctx.beginPath(); ctx.arc(e*r*0.62,k*r*0.30,r*0.10,0,TAU); ctx.fill();
     }
-    ctx.font='800 '+Math.max(6,r*0.5)+'px system-ui,sans-serif';
-    ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillStyle='rgba(255,255,255,0.30)'; ctx.fillText(T('kg'),0.8,r*0.06+0.8);
-    ctx.fillStyle='#3a404b'; ctx.fillText(T('kg'),0,r*0.06);
+    /* Гравировку печатаем ТОЛЬКО когда она физически читается. В бою r≈10,
+       кегль выходил 6px на четыре глифа, да ещё в две копии со сдвигом 0.8px —
+       вместо шейки кости получалось двоящееся пятно. На справочном экране
+       кость крупнее, там подпись к месту. */
+    if(r>=12){
+      ctx.font='800 '+(r*0.44).toFixed(1)+'px system-ui,sans-serif';
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillStyle='#2c313a'; ctx.fillText(T('kg'),0,r*0.06);
+    }
   }
   ctx.restore();
 }
@@ -1497,17 +1535,24 @@ function drawGround(){
   /* земля с градиентом: у горизонта светлее, к низу уходит в тень */
   const gg=ctx.createLinearGradient(0,groundY,0,PLAY_H);
   gg.addColorStop(0,'#3a2b21'); gg.addColorStop(0.45,'#2b1f18'); gg.addColorStop(1,'#1c1410');
-  ctx.fillStyle=gg; ctx.fillRect(0,groundY,W,gh);
+  /* запас по краям: двор уезжает под translate(ox,oy) на тряске до 14 единиц,
+     и без запаса вдоль низа и боков вспыхивала полоса ночного неба */
+  ctx.fillStyle=gg; ctx.fillRect(-20,groundY,W+40,gh+20);
   /* кромка: тёплая полоса и трава силуэтом */
-  ctx.fillStyle='#4a3527'; ctx.fillRect(0,groundY,W,5);
+  ctx.fillStyle='#4a3527'; ctx.fillRect(-20,groundY,W+40,5);
+  /* Земля едет со СВОИМ, слабым параллаксом. Раньше трава переднего плана
+     плыла на 0.34, а лужи, камешки и эти травинки стояли намертво — в одном
+     сантиметре кадра три системы одной земли с параллаксом 0.34, 0 и 0.
+     Теперь глубина нарастает: город 0.045…0.19, земля 0.10, трава 0.34. */
+  const gdx=-(dog.x-W/2)*0.10;
   ctx.strokeStyle='#2c3a22'; ctx.lineWidth=1.6;
   for(let i=0;i<46;i++){
-    const gx=((i*97.31+13)%1000)/1000*W, lean=Math.sin(realTime*0.8+i)*1.6, hgt=3+((i*41.7)%5);
+    const gx=((i*97.31+13)%1000)/1000*W+gdx, lean=Math.sin(realTime*0.8+i)*1.6, hgt=3+((i*41.7)%5);
     ctx.beginPath(); ctx.moveTo(gx,groundY+3); ctx.lineTo(gx+lean,groundY+3-hgt); ctx.stroke();
   }
   /* ЛУЖИ: отражают луну и свет будок — самая дешёвая «дорогая» деталь */
   for(let i=0;i<3;i++){
-    const px=W*(0.18+i*0.31)+Math.sin(i*2.1)*10, py=groundY+gh*(0.42+0.18*((i*7)%3)/2);
+    const px=W*(0.18+i*0.31)+Math.sin(i*2.1)*10+gdx, py=groundY+gh*(0.42+0.18*((i*7)%3)/2);
     const pw=W*(0.10+0.045*((i*5)%3)), ph=Math.max(3,gh*0.11);
     const pg=ctx.createLinearGradient(0,py-ph,0,py+ph);
     pg.addColorStop(0,'rgba(150,175,225,0.42)'); pg.addColorStop(1,'rgba(70,82,130,0.20)');
@@ -1545,13 +1590,13 @@ function drawGround(){
   /* камешки */
   ctx.fillStyle='rgba(0,0,0,0.18)';
   for(let i=0;i<16;i++){
-    const px=((i*211.7+37)%1000)/1000*W;
+    const px=((i*211.7+37)%1000)/1000*W+gdx;
     const py=groundY+14+((i*53.3+11)%1000)/1000*Math.max(8,gh-24);
     ctx.beginPath(); ctx.ellipse(px,py,3.2,1.8,0,0,TAU); ctx.fill();
   }
   ctx.fillStyle='rgba(255,255,255,0.05)';
   for(let i=0;i<10;i++){
-    const px=((i*167.3+61)%1000)/1000*W;
+    const px=((i*167.3+61)%1000)/1000*W+gdx;
     const py=groundY+16+((i*73.9+29)%1000)/1000*Math.max(8,gh-26);
     ctx.fillRect(px,py,2,1.5);
   }
@@ -1599,8 +1644,13 @@ function drawShadows(){
   ctx.globalAlpha=1;
   /* тень собаки сужается вместе с корпусом на развороте, но не исчезает —
      иначе пёс на миг отрывается от собственной тени */
-  ctx.fillStyle='rgba(0,0,0,0.30)';
-  ctx.beginPath(); ctx.ellipse(dog.x,groundY+3,30*DOG_S*(1+0.10*dog.squash)*Math.max(0.42,Math.abs(dog.face)),5.5*DOG_S,0,0,TAU); ctx.fill();
+  /* на подскоке тень остаётся на земле (так и надо), но сжимается и светлеет —
+     иначе пёс висит в воздухе над своим полноразмерным чёрным пятном */
+  const lf=dogLift()/(9*DOG_S||1), sh=1-0.42*lf;
+  ctx.globalAlpha=0.30*(1-0.45*lf);
+  ctx.fillStyle='#000';
+  ctx.beginPath(); ctx.ellipse(dog.x,groundY+3,30*DOG_S*(1+0.10*dog.squash)*Math.max(0.42,Math.abs(dog.face))*sh,5.5*DOG_S*sh,0,0,TAU); ctx.fill();
+  ctx.globalAlpha=1;
   ctx.fillStyle='#000';
   for(let i=0;i<bones.length;i++){
     const b=bones[i]; if(b.dead) continue;
@@ -1778,6 +1828,8 @@ function drawSky(){
    месяца. Пересоздаётся только при смене размера поля. */
 let skyGrad=null, skyGradH=0;
 let cityGlow=null, cityGlowH=0;   // тёплая засветка неба над крышами
+let startVeil=null, startVeilH=0; // затемнение титула: сверху плотное, к низу сходит
+let padGrad=null, padGradH=0;     // фон пульта: продолжает землю
 function skyGradient(){
   if(!skyGrad||skyGradH!==PLAY_H){
     skyGrad=ctx.createLinearGradient(0,0,0,PLAY_H);
@@ -1960,8 +2012,16 @@ function drawYardProps(){
 }
 /* ---------- ПУЛЬТ: две кнопки, палец не лезет в игру ---------- */
 function drawPad(){
-  ctx.fillStyle='#0a0c12'; ctx.fillRect(0,PLAY_H,W,CTRL_H);
-  ctx.fillStyle='rgba(255,255,255,0.07)'; ctx.fillRect(0,PLAY_H,W,2);
+  /* Пульт занимает пятую часть кадра и был единственным холодно-синим пятном
+     в тёплой сцене — в превью стора читался как панель отладчика под
+     скриншотом. Теперь верх пульта продолжает землю и уходит в тёмное. */
+  if(!padGrad||padGradH!==CTRL_H){
+    padGrad=ctx.createLinearGradient(0,PLAY_H,0,PLAY_H+CTRL_H);
+    padGrad.addColorStop(0,'#241a13'); padGrad.addColorStop(0.45,'#141119'); padGrad.addColorStop(1,'#0a0c12');
+    padGradH=CTRL_H;
+  }
+  ctx.fillStyle=padGrad; ctx.fillRect(0,PLAY_H,W,CTRL_H);
+  ctx.fillStyle='rgba(255,220,170,0.12)'; ctx.fillRect(0,PLAY_H,W,2);
   const live=(state==='play');
   const inv=live&&invT>0;                                  // ⇄ пульт зеркальный
   const activeDir=live?((keyL!==keyR)?(keyR?1:-1):padDir):0;
@@ -2040,6 +2100,10 @@ function drawKennel(side){
     const grow=(big?1.28:(mid?1.08:1))*(1+0.30*hotPunch);   // прыжок в момент перевыбора
     const bw=clamp(w*0.75,34,50)*grow, bh=bw*0.64, fs=bw*0.42;
     const by=-h*1.02-bh*0.75+Math.sin(realTime*(big?6:4))*(big?4.5:3);
+    /* Зажимаем в поле: при ×4 на пике прыжка левый край уезжал за экран,
+       а ореол вокруг таблички обрезался ВСЕГДА. */
+    const bxOff=clamp(cx,bw*0.62+6,W-bw*0.62-6)-cx;
+    ctx.save(); ctx.translate(bxOff,0);
     if(big){ // сияние вокруг щедрой таблички
       const gg=ctx.createRadialGradient(0,by,2,0,by,bw*1.1);
       gg.addColorStop(0,'rgba(255,225,90,0.45)'); gg.addColorStop(1,'rgba(255,225,90,0)');
@@ -2049,11 +2113,18 @@ function drawKennel(side){
     rr(-bw/2,by-bh/2,bw,bh,bh*0.31); ctx.fill();
     ctx.fillStyle=big?'#fff6cf':'#ffe3b8'; rr(-bw/2,by-bh/2,bw,bh*0.16,bh*0.09); ctx.fill();
     txt('×'+hm,0,by+fs*0.05,fs,'#3a1c00','center','bold',blinkOn?1:0.22);
+    ctx.restore();
     ctx.globalAlpha=1;
   }
   /* фонарик на карнизе, смотрит во двор; качается, при доставке подпрыгивает
      вместе с будкой (sq). У горячей — горит и собирает мотыльков. */
-  const ax=-side*w*0.62, ay=-h*0.56;
+  /* НАРУЖУ от будки, а не во двор. Раньше фонарь висел на внутренней стороне
+     ровно там, где собака стоит при сдаче, и чёрный колпак срастался с её
+     чёрным носом; поднять его не помогло — будка низкая, а собака высокая,
+     на любой высоте карниза лампа попадает в голову. Единственное место,
+     свободное от собаки, — внешняя стена. 0.45 ширины: дальше уедет за экран,
+     будки и так стоят у самых краёв. */
+  const ax=side*w*0.45, ay=-h*0.56;
   const lit=hot&&blinkOn;
   ctx.save(); ctx.translate(ax,ay);
   ctx.rotate(Math.sin(realTime*1.8+side*1.3)*0.14+sq*0.5*Math.sin(realTime*9));
@@ -2169,13 +2240,17 @@ function drawDog(){
      это ловля пастью, и пойманная кость просто исчезала в искрах.
      Закрытая — короткая линия; при ловле раскрывается и щёлкает. */
   if(dog.chomp>0.03&&!sad){
-    const op=Math.sin(Math.PI*Math.min(1,dog.chomp))*5.5;
+    /* Было sin(π·chomp): при chomp=1 (сам момент укуса) это ноль, то есть
+       пасть в укус ЗАКРЫТА, а раскрывалась спустя 0.1с. Теперь наоборот. */
+    const op=Math.min(1,dog.chomp)*9;
     ctx.fillStyle='#5a2b26';
     ctx.beginPath();
-    ctx.moveTo(8.5,3.2);
-    ctx.quadraticCurveTo(13,4.5+op,17.4,1.8);
-    ctx.quadraticCurveTo(13,3.6,8.5,3.2);
+    ctx.moveTo(7.6,2.6);
+    ctx.quadraticCurveTo(13,4.2+op,18.2,1.4);
+    ctx.quadraticCurveTo(13,2.8,7.6,2.6);
     ctx.closePath(); ctx.fill();
+    ctx.fillStyle='#ff8fa3';                       // язык внутри раскрытой пасти
+    ctx.beginPath(); ctx.ellipse(12.6,3.4+op*0.45,3.1,op*0.30,0,0,TAU); ctx.fill();
   }else if(!sad){
     ctx.strokeStyle='#3a2a1e'; ctx.lineWidth=1.5; ctx.lineCap='round';
     ctx.beginPath(); ctx.moveTo(9.5,4.4); ctx.quadraticCurveTo(13,6,16.4,4.2); ctx.stroke();
@@ -2208,21 +2283,31 @@ function drawDog(){
       ctx.strokeStyle='#26160c'; ctx.lineWidth=2; ctx.lineCap='round';
       ctx.beginPath(); ctx.moveTo(2,-3); ctx.lineTo(8.5,-3); ctx.stroke();
     }else{
+      const sr=scare?4.8:3.6, pr=scare?1.3:1.8;
       ctx.fillStyle='#fff';
-      ctx.beginPath(); ctx.arc(5,-3,scare?4.8:3.6,0,TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(5,-3,sr,0,TAU); ctx.fill();
+      /* Смещение зрачка ЗАЖАТО радиусом белка: при полном взгляде вбок-вверх
+         он вылезал на шерсть и глаз читался как выбитый. */
+      let ex=(scare?0.4:1.1)+1.1*lookSide, ey=(scare?-0.2:0.4)-1.5*lookUp;
+      const em=Math.hypot(ex,ey), lim=sr-pr-0.25;
+      if(em>lim){ ex*=lim/em; ey*=lim/em; }
       ctx.fillStyle='#26160c';
-      ctx.beginPath(); ctx.arc((scare?5.4:6.1)+1.1*lookSide,(scare?-3.2:-2.6)-1.5*lookUp,scare?1.3:1.8,0,TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(5+ex,-3+ey,pr,0,TAU); ctx.fill();
     }
   }
   /* кость в зубах */
-  if(carrying) drawBone(15,7,-0.14,12*(CONFIG.boneScale/CONFIG.dogScale),false,undefined);
+  /* Кость висит НИЖЕ и мельче, чем раньше. Прежние (15,7) при r=18.4 клали её
+     ровно на морду: глаз, нос и вся свежая мимика были не видны НИ РАЗУ, пока
+     собака несёт кость — то есть половину игры. Теперь верх кости проходит
+     под глазом, и видно взгляд, испуг, ухо и моргание. */
+  if(carrying) drawBone(17,12,-0.14,14,false,undefined);
   ctx.restore();
   ctx.restore();
   /* звёздочки оглушения */
   if(stunned){
     for(let i=0;i<3;i++){
       const a=realTime*7+i*2.09;
-      drawStar(dog.x+Math.cos(a)*20*DOG_S,groundY-64*DOG_S+Math.sin(a)*7*DOG_S,5,'#ffd94d',a);
+      drawStar(dog.x+Math.cos(a)*20*DOG_S,groundY-64*DOG_S-dogLift()+Math.sin(a)*7*DOG_S,5,'#ffd94d',a);
     }
   }
 }
@@ -2344,7 +2429,19 @@ function drawMute(){
   }
 }
 function drawStart(){
-  ctx.fillStyle='rgba(10,8,18,0.60)'; ctx.fillRect(0,0,W,PLAY_H);
+  /* Была РОВНАЯ плёнка 0.60 на весь кадр — включая двор, где текста нет вовсе.
+     Замер: месяц терял 58% яркости, собака светила на 42% от нормальной.
+     Весь наработанный свет — фонарь, засветка города, ореол месяца — на
+     витринном кадре просто не было видно. Теперь плёнка гаснет к низу. */
+  if(!startVeil||startVeilH!==PLAY_H){
+    startVeil=ctx.createLinearGradient(0,0,0,PLAY_H);
+    startVeil.addColorStop(0,'rgba(10,8,18,0.72)');
+    startVeil.addColorStop(0.70,'rgba(10,8,18,0.70)');
+    startVeil.addColorStop(0.86,'rgba(10,8,18,0.16)');
+    startVeil.addColorStop(1,'rgba(10,8,18,0.10)');
+    startVeilH=PLAY_H;
+  }
+  ctx.fillStyle=startVeil; ctx.fillRect(0,0,W,PLAY_H);
   const ts=Math.min(W*0.145,64);
   // декоративные кости — НАД заголовком, чтобы не налезали на буквы
   drawBone(W/2-ts*0.95,PLAY_H*0.175,-0.42+Math.sin(realTime*2)*0.12,14,false);
@@ -2427,7 +2524,7 @@ function render(){
   ctx.save();
   ctx.beginPath(); ctx.rect(0,0,W,H); ctx.clip(); // ничего не вылезает за поле
   /* небо */
-  ctx.fillStyle=skyGradient(); ctx.fillRect(0,0,W,PLAY_H);
+  ctx.fillStyle=skyGradient(); ctx.fillRect(-20,-20,W+40,PLAY_H+40);   // запас под тряску
   drawSky();     // млечный путь, звёзды, падающие звёзды
   drawMoon();    // месяц с ореолом
   /* ЗАСВЕТКА: ночное небо над городом всегда подсвечено снизу. Без неё небо
@@ -2478,25 +2575,27 @@ function render(){
   }
   drawDog();
   if(vacT>0){    // 🌀 ранец-пылесос за спиной, шланг через голову к пасти
-    const bpx=dog.x-dog.dir*34*DOG_S, m=mouthPos(), wob=Math.sin(realTime*10)*4*DOG_S;
+    const fd=dogFaceDir(), lift=dogLift();
+    const bpx=dog.x-fd*34*DOG_S, m=mouthVis(), wob=Math.sin(realTime*10)*4*DOG_S;
+    const by0=groundY-58*DOG_S-lift;
     ctx.fillStyle='#8f5fe8';
-    rr(bpx-13*DOG_S,groundY-58*DOG_S,26*DOG_S,34*DOG_S,8*DOG_S); ctx.fill();
+    rr(bpx-13*DOG_S,by0,26*DOG_S,34*DOG_S,8*DOG_S); ctx.fill();
     ctx.fillStyle='#b98cff';
-    rr(bpx-13*DOG_S,groundY-58*DOG_S,26*DOG_S,11*DOG_S,6*DOG_S); ctx.fill();
+    rr(bpx-13*DOG_S,by0,26*DOG_S,11*DOG_S,6*DOG_S); ctx.fill();
     ctx.strokeStyle='#4c2a8f'; ctx.lineWidth=2;
-    rr(bpx-13*DOG_S,groundY-58*DOG_S,26*DOG_S,34*DOG_S,8*DOG_S); ctx.stroke();
+    rr(bpx-13*DOG_S,by0,26*DOG_S,34*DOG_S,8*DOG_S); ctx.stroke();
     ctx.strokeStyle='#4c2a8f'; ctx.lineWidth=5*DOG_S; ctx.lineCap='round';
-    ctx.beginPath(); ctx.moveTo(bpx,groundY-56*DOG_S);
-    ctx.quadraticCurveTo(dog.x-dog.dir*6*DOG_S,groundY-98*DOG_S+wob,m.x+dog.dir*7*DOG_S,m.y-3*DOG_S);
+    ctx.beginPath(); ctx.moveTo(bpx,groundY-56*DOG_S-lift);
+    ctx.quadraticCurveTo(dog.x-fd*6*DOG_S,groundY-98*DOG_S-lift+wob,m.x+fd*7*DOG_S,m.y-3*DOG_S);
     ctx.stroke();
     ctx.fillStyle='#2a175c';
-    ctx.beginPath(); ctx.arc(m.x+dog.dir*9*DOG_S,m.y-3*DOG_S,5.2*DOG_S,0,TAU); ctx.fill();
+    ctx.beginPath(); ctx.arc(m.x+fd*9*DOG_S,m.y-3*DOG_S,5.2*DOG_S,0,TAU); ctx.fill();
     ctx.fillStyle='#b98cff';
-    ctx.beginPath(); ctx.arc(m.x+dog.dir*9*DOG_S,m.y-3*DOG_S,2.4*DOG_S,0,TAU); ctx.fill();
+    ctx.beginPath(); ctx.arc(m.x+fd*9*DOG_S,m.y-3*DOG_S,2.4*DOG_S,0,TAU); ctx.fill();
   }
   if(auraT>0){   // 🛡 пузырь вокруг собаки, мигает на исходе
     const fade=auraT<1.2?(0.35+0.65*Math.abs(Math.sin(realTime*14))):1;
-    const R=54*DOG_S+3*Math.sin(realTime*5), cy=groundY-34*DOG_S;
+    const R=54*DOG_S+3*Math.sin(realTime*5), cy=groundY-34*DOG_S-dogLift();
     ctx.beginPath(); ctx.arc(dog.x,cy,R,0,TAU);
     ctx.globalAlpha=0.12*fade; ctx.fillStyle='#7fd8ff'; ctx.fill();
     ctx.globalAlpha=0.55*fade; ctx.strokeStyle='#7fd8ff'; ctx.lineWidth=3; ctx.stroke();
@@ -2524,11 +2623,16 @@ function render(){
     ctx.globalAlpha=1;
     /* Остаток времени — ПОЛОСОЙ. Голая цифра липла к множителю:
        «ОБЕ БУДКИ ×4   7» читалось как «×47». Полоса считывается без чтения. */
-    txt(T('mirrorBanner')+CONFIG.invertHotMult,W/2,PLAY_H-18,15,'#ffffff','center','700');
-    const twid=W*clamp(invT/CONFIG.invertTime,0,1);
+    txt(T('mirrorBanner')+CONFIG.invertHotMult,W/2,PLAY_H-30,15,'#ffffff','center','700');
+    /* Полоса ВЫШЕ баннера и в СВОЁМ цвете. Раньше она лежала целиком внутри
+       семипиксельной обводки рамки, тем же цветом и в той же фазе мигания —
+       то есть отличалась от рамки только вторым слоем той же краски.
+       Теперь: тёмная дорожка + жёлтая заливка, мигания нет вовсе. */
+    const tw=Math.min(W*0.62,240), tx0=(W-tw)/2, ty0=PLAY_H-16;
     ctx.globalAlpha=0.9*fade;
-    ctx.fillStyle=(Math.floor(realTime*6)%2)?'#ffffff':'#ff8a3d';
-    ctx.fillRect((W-twid)/2,PLAY_H-8,twid,4);
+    ctx.fillStyle='rgba(0,0,0,0.55)'; rr(tx0-2,ty0-2,tw+4,9,4.5); ctx.fill();
+    ctx.fillStyle='#ffd94d';
+    rr(tx0,ty0,tw*clamp(invT/CONFIG.invertTime,0,1),5,2.5); ctx.fill();
     ctx.globalAlpha=1;
   }
   drawParticles();
