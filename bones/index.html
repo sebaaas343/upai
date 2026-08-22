@@ -241,7 +241,7 @@ const STR={
     hVac:'Vacuum — food flies to your mouth',
     hMirror:'Mirror — controls flip, both kennels ×4',
     best:'Best: ',
-    perBone:' per bone',
+    streak:'streak ×',
     over:'STARVED',
     score:'Score: ',
     delivered:'Bones delivered: ',
@@ -293,7 +293,7 @@ const STR={
     hVac:'Пылесос — еда летит в пасть',
     hMirror:'Зеркало — кнопки местами, обе будки ×4',
     best:'Рекорд: ',
-    perBone:' за кость',
+    streak:'серия ×',
     over:'ГОЛОД',
     score:'Счёт: ',
     delivered:'Костей доставлено: ',
@@ -984,8 +984,8 @@ function vacSwallow(){
   /* сытость как с горячей будки ×2 (16), а не как с обычной: пылесос редкий,
      пусть кормит по-настоящему */
   hunger=Math.min(CONFIG.hungerMax,hunger+CONFIG.hungerRefill*CONFIG.hotMults[0]);
-  scorePunch=1; dog.squash=1;
-  const m=mouthPos();
+  scorePunch=1; dog.squash=1; dog.chomp=1;
+  const m=mouthVis();
   for(let i=0;i<6;i++) addP({kind:'spark',x:m.x,y:m.y,vx:rand(-70,70),vy:rand(-90,10),g:300,life:rand(0.2,0.35),max:0.35,size:rand(1.5,3),color:'#e6dcff'});
   SFX.catch();
 }
@@ -1008,7 +1008,7 @@ function deliverBone(side){
   hunger=Math.min(CONFIG.hungerMax,hunger+food);
   scorePunch=1; dog.hop=1;   // в собственный праздник собака больше не стоит столбом
   const cx=(side===-1)?kennelLX:kennelRX;
-  const m=mouthPos();
+  const m=mouthVis();
   fxBones.push({mode:'arc',t:0,dur:0.30,x0:m.x,y0:m.y,x1:cx,y1:groundY-KH*0.72,rot:0,vr:14,side:side});
   /* Раньше тут спавнились ТРИ надписи в одну точку: «+40», «×4!» и «СЫТНО».
      Они ложились друг на друга и на бейдж будки — не прочесть ни сумму, ни
@@ -1052,8 +1052,8 @@ function poisonHit(sly){
   for(let i=0;i<14;i++) addP({kind:'spark',x:dog.x,y:groundY-30*DOG_S,vx:rand(-150,150),vy:rand(-220,-20),g:420,life:rand(0.3,0.6),max:0.6,size:rand(2,4),color:Math.random()<0.5?'#8fd438':'#b06fd8'});
   if(carrying){
     carrying=false; // несомая кость улетает и ТЕРЯЕТСЯ (не ловится снова)
-    const m=mouthPos();
-    fxBones.push({mode:'tumble',x:m.x,y:m.y,vx:-dog.dir*rand(160,260),vy:rand(-380,-280),rot:0,vr:rand(-11,11),life:1.3});
+    const m=mouthVis();   // визуальная точка: по face и с учётом подскока
+    fxBones.push({mode:'tumble',x:m.x,y:m.y,vx:-dogFaceDir()*rand(160,260),vy:rand(-380,-280),rot:0,vr:rand(-11,11),life:1.3});
   }
   speedT=0; // яд снимает рывок — иначе оглушение при ускорении почти не чувствуется
   SFX.yelp();
@@ -1174,7 +1174,8 @@ function step(dt){
       addP({kind:'puff',x:dog.x+rand(-9,9),y:groundY-rand(2,9)*DOG_S,vx:rand(-32,32),vy:rand(-22,-4),g:40,life:rand(0.2,0.4),max:0.4,size:rand(2,4.5),color:'#a08a6a'});
   }
   /* ⚡ следы скорости за собакой / 🪨 пыль тяжести */
-  if(speedT>0&&Math.random()<dt*26) addP({kind:'spark',x:dog.x-dog.dir*rand(14,30),y:groundY-rand(10,34)*DOG_S,vx:-dog.dir*rand(50,110),vy:rand(-20,20),g:0,life:0.35,max:0.35,size:rand(1.5,3),color:'#ffd94d'});
+  if(speedT>0&&Math.random()<dt*26){ const fd2=dogFaceDir();
+    addP({kind:'spark',x:dog.x-fd2*rand(14,30),y:groundY-dogLift()-rand(10,34)*DOG_S,vx:-fd2*rand(50,110),vy:rand(-20,20),g:0,life:0.35,max:0.35,size:rand(1.5,3),color:'#ffd94d'}); }
   if(slowT>0&&Math.random()<dt*12) addP({kind:'puff',x:dog.x+rand(-16,16),y:groundY-rand(2,10)*DOG_S,vx:rand(-20,20),vy:rand(-24,-6),g:30,life:0.5,max:0.5,size:rand(2.5,5),color:'#9aa3b0'});
   /* доставка: засчитываем, как только КОНЧИК несомой кости коснулся тёмного входа */
   if(carrying&&!stunned){
@@ -2413,7 +2414,10 @@ function drawHUD(){
   if(state!=='over'){
     drawBone(28,sy,-0.5,11,false);            // иконка БЕЗ пульса: раздутая налезала на цифру
     txt(String(score),52,sy,30*pk,'#ffffff','left');
-    if(combo>0) txt('+'+curDeliveryPts()+T('perBone'),52,sy+24,12,'#8fe06a','left','600');
+    /* Показываем СЕРИЮ, а не второе число очков. Любое «+N за кость» в шапке
+       спорит с числом во флотере: до переноса combo++ оно было на шаг выше,
+       после — на шаг ниже. Серия — сама механика, и спорить ей не с чем. */
+    if(combo>1) txt(T('streak')+combo,52,sy+24,12,'#8fe06a','left','600');
     txt(T('best')+best,W-14,sy,14,'rgba(255,255,255,0.55)','right');
   }
 }
