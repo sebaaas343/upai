@@ -345,6 +345,10 @@ let stars=null;                    // звёзды (строятся один р
 let fgGrass=null;                  // трава переднего плана (пересобирается на раскладку)
 let lanternGrad=null;              // градиент фонарика: локальные координаты, создаётся один раз
 let deliverFlash=0, deliverSide=-1;// вспышка света у будки, куда только что сдали кость
+/* Светящаяся кость подсвечивает землю под собой, иначе свечение выглядит
+   наклейкой. Держим ЗДЕСЬ, выше resize(): по правилу проекта новые глобалы
+   живут с остальными, иначе первый же вызов отрисовки сверху уронит скрипт. */
+const GLOWCOL={speed:'255,217,77',magic:'255,154,224',aura:'127,216,255',vac:'185,140,255',invert:'255,255,255'};
 let milkyGrad=null, milkyH=0;      // кэш градиента млечного пути
 let shootT=5, shoot=null;          // таймер до падающей звезды и она сама
 let lastPaw=0;                     // на каком пути топнули в прошлый раз
@@ -495,7 +499,7 @@ let combo=0;                       // сколько чистых доставо
 let scorePunch=0, hotPunch=0;
 const kennelSquash={'-1':0,'1':0};
 
-const dog={x:200,y:0,dir:1,vx:0,squash:0,step:0};
+const dog={x:200,y:0,dir:1,face:1,vx:0,squash:0,step:0};   // dir — логика, face — куда повёрнут спрайт
 dog.x=W/2; dog.y=groundY;
 
 let padDir=0, keyL=false, keyR=false;  // padDir: −1 влево, +1 вправо, 0 стоим
@@ -790,7 +794,7 @@ function resetRun(){
   scorePunch=0; hotPunch=0;
   kennelSquash['-1']=0; kennelSquash['1']=0;
   bones.length=0; fxBones.length=0; particles.length=0; floaters.length=0;
-  dog.x=W/2; dog.dir=1; dog.vx=0; dog.squash=0; dog.step=0; lastPaw=0;
+  dog.x=W/2; dog.dir=1; dog.face=1; dog.vx=0; dog.squash=0; dog.step=0; lastPaw=0;
   clearTouches(); keyL=false; keyR=false;
   timeScale=1; acc=0;
 }
@@ -800,16 +804,17 @@ function startGame(){ resetRun(); state='play'; SFX.uiTap(); SFX.bark(); }
 function pauseGame(){
   if(state!=='play') return;
   state='pause'; clearTouches(); keyL=false; keyR=false;   // mouseDown живёт в своём блоке — трогать нельзя
+  dog.face=dog.dir;   // доворот замер бы на полпути: вне игры step() не идёт
   vacHumStop(); SFX.uiTap();
 }
 function resumeGame(){ if(state!=='pause') return; state='play'; last=performance.now(); acc=0; SFX.uiTap(); }
-function goHome(){ state='start'; clearTouches(); keyL=false; keyR=false; vacHumStop(); SFX.uiTap(); }
-function openHelp(){ state='help'; SFX.uiTap(); }
+function goHome(){ state='start'; clearTouches(); keyL=false; keyR=false; dog.face=dog.dir; vacHumStop(); SFX.uiTap(); }
+function openHelp(){ state='help'; dog.face=dog.dir; SFX.uiTap(); }   // вне play доворот не идёт
 function gameOver(){
   if(state!=='play') return;
   state='over';
   overDelay=0.6;               // защита от случайного тапа сквозь экран смерти
-  clearTouches(); keyL=false; keyR=false;
+  clearTouches(); keyL=false; keyR=false; dog.face=dog.dir;
   newBest=score>best;
   if(newBest){ best=score; lsSet('best4',best); } // рекорд пишется РОВНО один раз
   shakeT=0.3; shakeAmp=5;
@@ -1100,6 +1105,19 @@ function step(dt){
       dog.vx=mv/dt;
     } else dog.vx=0;
   } else dog.vx=0;
+  /* РАЗВОРОТ не мгновенный. Раньше спрайт зеркалился за один кадр и смена
+     направления читалась как телепорт — а это главное действие игрока.
+     Теперь собака «складывается» через ноль за ~0.1с и топает пылью. */
+  if(dog.face!==dog.dir){
+    /* РАВНОМЕРНО, а не экспонентой. У экспоненты бесконечный хвост: доворот
+       занимал 0.275с вместо обещанных 0.1, и при частых перекладках собака
+       вообще не успевала выйти на полную ширину — жила узким блином.
+       Скорость 20/с = полный разворот с −1 до 1 ровно за 0.1с, всегда. */
+    const was=dog.face, d=dog.dir-dog.face;
+    dog.face+=Math.sign(d)*Math.min(20*dt,Math.abs(d));
+    if(was*dog.face<0) for(let i=0;i<4;i++)
+      addP({kind:'puff',x:dog.x+rand(-9,9),y:groundY-rand(2,9)*DOG_S,vx:rand(-32,32),vy:rand(-22,-4),g:40,life:rand(0.2,0.4),max:0.4,size:rand(2,4.5),color:'#a08a6a'});
+  }
   /* ⚡ следы скорости за собакой / 🪨 пыль тяжести */
   if(speedT>0&&Math.random()<dt*26) addP({kind:'spark',x:dog.x-dog.dir*rand(14,30),y:groundY-rand(10,34)*DOG_S,vx:-dog.dir*rand(50,110),vy:rand(-20,20),g:0,life:0.35,max:0.35,size:rand(1.5,3),color:'#ffd94d'});
   if(slowT>0&&Math.random()<dt*12) addP({kind:'puff',x:dog.x+rand(-16,16),y:groundY-rand(2,10)*DOG_S,vx:rand(-20,20),vy:rand(-24,-6),g:30,life:0.5,max:0.5,size:rand(2.5,5),color:'#9aa3b0'});
@@ -1480,6 +1498,10 @@ function drawGround(){
     pg.addColorStop(0,'rgba(150,175,225,0.42)'); pg.addColorStop(1,'rgba(70,82,130,0.20)');
     ctx.fillStyle=pg;
     ctx.beginPath(); ctx.ellipse(px,py,pw,ph,0,0,TAU); ctx.fill();
+    /* три одинаковых овала с равным шагом читались как копипаста —
+       двум добавляем прилипший «отросток», форма у каждой своя */
+    if(i===1){ ctx.beginPath(); ctx.ellipse(px+pw*0.78,py+ph*0.38,pw*0.52,ph*0.68,0,0,TAU); ctx.fill(); }
+    if(i===2){ ctx.beginPath(); ctx.ellipse(px-pw*0.88,py-ph*0.22,pw*0.42,ph*0.52,0,0,TAU); ctx.fill(); }
     /* круги от капель: расходятся от центра и гаснут к краю лужи.
        t — фаза 0..1, ph — полувысота самой лужи (не затенять!) */
     for(let k=0;k<2;k++){
@@ -1493,6 +1515,17 @@ function drawGround(){
     /* дрожащий блик — как отражение в воде */
     ctx.fillStyle='rgba(247,238,203,'+(0.22+0.08*Math.sin(realTime*2+i)).toFixed(3)+')';
     ctx.beginPath(); ctx.ellipse(px+Math.sin(realTime*1.4+i)*2,py,pw*0.30,ph*0.34,0,0,TAU); ctx.fill();
+    /* тёплое отражение фонаря горячей будки: раньше её свет висел в воздухе
+       и земли не касался вовсе */
+    /* во время зеркала горячие ОБЕ будки — отражений тоже два, иначе сцена
+       не кричит «обе», хотя оба фонаря горят на полную */
+    for(const sd of (invT>0?[-1,1]:[hotSide])){
+      const hkx=(sd===-1)?kennelLX:kennelRX, dh=Math.abs(px-hkx);
+      if(dh>=W*0.30) continue;
+      const kk=1-dh/(W*0.30);
+      ctx.fillStyle='rgba(255,203,108,'+(0.17*kk).toFixed(3)+')';
+      ctx.beginPath(); ctx.ellipse(px+(hkx-px)*0.28,py,pw*0.20,ph*0.80,0,0,TAU); ctx.fill();
+    }
   }
   /* камешки */
   ctx.fillStyle='rgba(0,0,0,0.18)';
@@ -1512,9 +1545,47 @@ function drawGround(){
    способ видеть, КУДА упадёт кость, не провожая её глазами. Альфа растёт
    квадратично, чтобы десяток теней высоко в небе не превращался в мусор:
    тень заметна только у тех костей, которые вот-вот приземлятся. ---- */
+/* Волшебная кость гоняет hue по кругу; её ореол должен гоняться вместе с ней.
+   Считаем rgb вручную — createRadialGradient не принимает hsl в старых WebKit. */
+function magicRGB(){
+  const h=((realTime*140)%360)/60, x=1-Math.abs(h%2-1);
+  let r,g2,b2;
+  if(h<1){r=1;g2=x;b2=0;} else if(h<2){r=x;g2=1;b2=0;} else if(h<3){r=0;g2=1;b2=x;}
+  else if(h<4){r=0;g2=x;b2=1;} else if(h<5){r=x;g2=0;b2=1;} else {r=1;g2=0;b2=x;}
+  const lo=0.49, hi=0.95;   // светлый насыщенный, как само тело кости
+  return Math.round(255*(lo+r*(hi-lo)))+','+Math.round(255*(lo+g2*(hi-lo)))+','+Math.round(255*(lo+b2*(hi-lo)));
+}
 function drawShadows(){
+  /* ПОРЯДОК КРИТИЧЕН: сначала цветное пятно, ПОВЕРХ — чёрная тень.
+     Наоборот светлое пятно накрывало тень целиком (оно вдвое шире) и смывало
+     её ровно на последних долях секунды перед падением — а по тени и целятся.
+     Тень тут механика, а свечение украшение; спорные пиксели за тенью. */
+  /* Свечение — ОРЕОЛ С ПУСТОЙ СЕРЕДИНОЙ, а не сплошное пятно. Сплошное было
+     вдвое шире тени и накрывало её: замер пикселей показал, что центр под
+     золотой костью выходил на 17 ЯРЧЕ земли вместо 18 темнее, то есть метка
+     приземления инвертировалась ровно у светящихся костей. Теперь свет лежит
+     кольцом ВОКРУГ тени: и подсветка есть, и «тёмное пятно = место падения»
+     работает одинаково для всех костей. */
+  for(let i=0;i<bones.length;i++){
+    const b=bones[i]; if(b.dead||!b.kind) continue;
+    const c=GLOWCOL[b.kind]; if(!c) continue;
+    const q=clamp(b.y/(groundY-7),0,1); if(q<0.35) continue;
+    const rx=13*BONE_S*(1.35+1.5*q), a=0.10+0.26*q*q;
+    /* волшебная переливается по кругу — пятно совпадает с источником по цвету */
+    const rgb=(b.kind==='magic')?magicRGB():c;
+    ctx.save(); ctx.translate(b.x,groundY+3); ctx.scale(1,0.30);
+    const g=ctx.createRadialGradient(0,0,rx*0.42,0,0,rx);
+    g.addColorStop(0,'rgba('+rgb+',0)');
+    g.addColorStop(0.45,'rgba('+rgb+','+a.toFixed(3)+')');
+    g.addColorStop(1,'rgba('+rgb+',0)');
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,rx,0,TAU); ctx.fill();
+    ctx.restore();
+  }
+  ctx.globalAlpha=1;
+  /* тень собаки сужается вместе с корпусом на развороте, но не исчезает —
+     иначе пёс на миг отрывается от собственной тени */
   ctx.fillStyle='rgba(0,0,0,0.30)';
-  ctx.beginPath(); ctx.ellipse(dog.x,groundY+3,30*DOG_S*(1+0.10*dog.squash),5.5*DOG_S,0,0,TAU); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(dog.x,groundY+3,30*DOG_S*(1+0.10*dog.squash)*Math.max(0.42,Math.abs(dog.face)),5.5*DOG_S,0,0,TAU); ctx.fill();
   ctx.fillStyle='#000';
   for(let i=0;i<bones.length;i++){
     const b=bones[i]; if(b.dead) continue;
@@ -1523,7 +1594,7 @@ function drawShadows(){
     ctx.globalAlpha=0.04+0.28*q*q;                              // число, без строки и парсинга цвета
     ctx.beginPath(); ctx.ellipse(b.x,groundY+3,rx,rx*0.30,0,0,TAU); ctx.fill();
   }
-  ctx.globalAlpha=1;
+  ctx.globalAlpha=1; ctx.fillStyle='#000';   // цвет свечения наружу не отдаём
 }
 /* ---- ПЕРЕДНИЙ ПЛАН: трава ближе камеры. Город едет с параллаксом
    0.045–0.19, трава — 0.34: она обгоняет сцену, и двор получает глубину
@@ -1739,7 +1810,7 @@ function buildSkyline(){
       /* надстройки на крыше — только у ближнего слоя */
       if(L.par>0.15){
         if(rnd()<0.55) b.roof.push({t:'box', x:bw*(0.15+rnd()*0.5), w:8+rnd()*12, h:6+rnd()*10});
-        if(rnd()<0.45) b.roof.push({t:'pipe', x:bw*(0.2+rnd()*0.6), w:4, h:10+rnd()*14});
+        if(rnd()<0.45) b.roof.push({t:'pipe', x:bw*(0.2+rnd()*0.6), w:4, h:10+rnd()*14, smoke:rnd()<0.4, ph:rnd()*6.28});
         if(rnd()<0.30) b.roof.push({t:'ant', x:bw*(0.3+rnd()*0.4), w:2, h:14+rnd()*18});
       }
       blocks.push(b);
@@ -1785,6 +1856,24 @@ function drawSkyline(){
         ctx.fillRect(bx+wn.x,by+wn.y,wn.w,wn.h);
       }
     }
+    /* Дым из труб — только у ближнего слоя. Крыши читались как картон:
+       вертикальные струйки в пустое небо над ними говорят, что в домах живут. */
+    if(c.par>0.15){
+      ctx.fillStyle='rgba(196,190,214,0.065)';
+      for(const b of L.blocks){
+        const bx=b.x+dx; if(bx>W+90||bx+b.w<-90) continue;
+        const by=base-b.h;
+        for(const rf of b.roof){
+          if(rf.t!=='pipe'||!rf.smoke) continue;
+          for(let k=0;k<3;k++){
+            const t=(realTime*0.16+rf.ph+k*0.34)%1;
+            ctx.beginPath();
+            ctx.arc(bx+rf.x+rf.w/2+Math.sin(t*3.2+rf.ph)*6*t, by-rf.h-4-t*34, 2.4+t*7.5, 0, TAU);
+            ctx.fill();
+          }
+        }
+      }
+    }
     /* дымка поверх слоя — дальние тонут сильнее.
        ГРАДИЕНТОМ, а не плоской заливкой: у плоской верхний край даёт резкую
        линию, и при вспышке молнии она проступает через весь экран. */
@@ -1804,6 +1893,30 @@ function drawSkyline(){
       ctx.beginPath(); ctx.arc(bx+b.w/2,ty,2,0,TAU); ctx.fill();
     }
   }
+}
+/* Будки были зеркальными близнецами, и двор читался как симметричная
+   декорация. Мелочи во дворе делают его обжитым и заодно дают различать
+   стороны боковым зрением — это выручает, когда зеркало меняет кнопки. */
+function drawYardProps(){
+  ctx.save();
+  /* Отступ 1.4 ширины будки: на 0.8 пропсы садились ровно на фонарь,
+     который висит на карнизе в 0.62, и всё слипалось в кашу. */
+  const u=Math.max(0.85,DS*1.05);
+  const bx=kennelLX+KW*1.40, by=groundY-2;
+  ctx.fillStyle='#454b55';
+  ctx.beginPath(); ctx.ellipse(bx,by-3*u,11*u,4.4*u,0,0,TAU); ctx.fill();
+  ctx.fillStyle='#23262c';
+  ctx.beginPath(); ctx.ellipse(bx,by-4.6*u,7.6*u,2.8*u,0,0,TAU); ctx.fill();
+  ctx.fillStyle='#e8ddc2';
+  ctx.beginPath(); ctx.ellipse(bx+17*u,by-2*u,4.6*u,1.9*u,0.28,0,TAU); ctx.fill();
+  ctx.beginPath(); ctx.arc(bx+21*u,by-2.6*u,2.1*u,0,TAU); ctx.fill();
+  /* у правой — прислонённая покрышка */
+  const tx=kennelRX-KW*1.40, ty=groundY-8*u+1.5;   // +1.5: слегка утоплена, иначе висит
+  ctx.strokeStyle='#1e2127'; ctx.lineWidth=4.2*u;
+  ctx.beginPath(); ctx.arc(tx,ty,8*u,0,TAU); ctx.stroke();
+  ctx.strokeStyle='#343943'; ctx.lineWidth=1.4*u;
+  ctx.beginPath(); ctx.arc(tx,ty,8*u,0,TAU); ctx.stroke();
+  ctx.restore();
 }
 /* ---------- ПУЛЬТ: две кнопки, палец не лезет в игру ---------- */
 function drawPad(){
@@ -1933,15 +2046,31 @@ function drawKennel(side){
 function drawDog(){
   ctx.save();
   ctx.translate(dog.x,groundY);
-  ctx.scale(dog.dir,1);
+  /* пол на масштабе: scale(0) схлопывает матрицу и роняет отрисовку */
+  const fc=dog.face; ctx.scale(Math.abs(fc)<0.14?(fc<0?-0.14:0.14):fc,1);
   ctx.scale((1+0.14*dog.squash)*DOG_S,(1-0.14*dog.squash)*DOG_S);
   const moving=Math.abs(dog.vx)>20;
   const ph=dog.step*0.22/DOG_S;
   const stunned=stunT>0;
   /* испуг: череп падает прямо на собаку — глаз распахнут, ухо прижато */
-  let scare=false;
-  for(let i=0;i<bones.length;i++){ const b=bones[i];
-    if(!b.dead&&b.poison&&!b.sly&&Math.abs(b.x-dog.x)<80&&b.y>groundY-300&&b.y<groundY-40){ scare=true; break; } }
+  let scare=false, look=null, lookD=1e9;
+  for(let i=0;i<bones.length;i++){ const b=bones[i]; if(b.dead) continue;
+    if(b.poison&&!b.sly&&Math.abs(b.x-dog.x)<80&&b.y>groundY-300&&b.y<groundY-40) scare=true;
+    if(b.y<groundY-20){                       // ближайшая кость в воздухе — за ней и следим
+      const d=Math.abs(b.x-dog.x)+Math.abs(b.y-groundY)*0.35;
+      if(d<lookD){ lookD=d; look=b; }
+    }
+  }
+  /* ВЗГЛЯД: голова и зрачок ведут ближайшую кость. Раньше зрачок был прибит
+     гвоздями в одну точку, и собака смотрела в пустоту мимо всего, что летит. */
+  let lookUp=0, lookSide=0;
+  if(look){
+    lookUp=clamp((groundY-40*DOG_S-look.y)/240,0,1);
+    /* по face, а не dir: это чисто экранная величина, а спрайт зеркалится
+       по face. Пока знаки расходятся (первые кадры разворота), зрачок иначе
+       уезжает в противоположную сторону — ровно в тот кадр, ради которого всё. */
+    lookSide=clamp((look.x-dog.x)*(dog.face<0?-1:1)/130,-1,1);
+  }
   const sad=(state==='over');   // партия кончилась — поза должна это говорить
   const main='#e2a24f', dark='#c78a3c', light='#f3c98a';
   /* хвост */
@@ -1973,6 +2102,7 @@ function drawDog(){
   /* голова */
   ctx.save();
   ctx.translate(22,sad?-35:-40);   // голова опущена
+  if(!sad&&!stunned) ctx.rotate(-0.18*lookUp);   // задирает морду к летящей кости
   if(stunned) ctx.rotate(0.12*Math.sin(realTime*20));
   ctx.fillStyle=main;
   ctx.beginPath(); ctx.arc(0,0,13,0,TAU); ctx.fill();
@@ -2011,7 +2141,7 @@ function drawDog(){
       ctx.fillStyle='#fff';
       ctx.beginPath(); ctx.arc(5,-3,scare?4.8:3.6,0,TAU); ctx.fill();
       ctx.fillStyle='#26160c';
-      ctx.beginPath(); ctx.arc(scare?5.4:6.1,scare?-3.2:-2.6,scare?1.3:1.8,0,TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc((scare?5.4:6.1)+1.1*lookSide,(scare?-3.2:-2.6)-1.5*lookUp,scare?1.3:1.8,0,TAU); ctx.fill();
     }
   }
   /* кость в зубах */
@@ -2240,6 +2370,7 @@ function render(){
   ctx.save();
   ctx.translate(ox,oy);
   drawGround();
+  drawYardProps();   // до фонарей: тёплое пятно должно лечь и на них
   /* фонари: тёплые пятна у каждой будки, у горячей ярче и дышит */
   for(const sd of [-1,1]){
     const lx=(sd===-1)?kennelLX:kennelRX, hot=hotAt(sd);
@@ -2284,10 +2415,14 @@ function render(){
   }
   if(auraT>0){   // 🛡 пузырь вокруг собаки, мигает на исходе
     const fade=auraT<1.2?(0.35+0.65*Math.abs(Math.sin(realTime*14))):1;
-    ctx.globalAlpha=0.55*fade;
-    ctx.strokeStyle='#7fd8ff'; ctx.lineWidth=3;
-    ctx.beginPath(); ctx.arc(dog.x,groundY-34*DOG_S,54*DOG_S+3*Math.sin(realTime*5),0,TAU); ctx.stroke();
-    ctx.globalAlpha=0.13*fade; ctx.fillStyle='#7fd8ff'; ctx.fill();
+    const R=54*DOG_S+3*Math.sin(realTime*5), cy=groundY-34*DOG_S;
+    ctx.beginPath(); ctx.arc(dog.x,cy,R,0,TAU);
+    ctx.globalAlpha=0.12*fade; ctx.fillStyle='#7fd8ff'; ctx.fill();
+    ctx.globalAlpha=0.55*fade; ctx.strokeStyle='#7fd8ff'; ctx.lineWidth=3; ctx.stroke();
+    /* блик сверху-слева: плоское кольцо становится мыльным пузырём, и сразу
+       видно, что собака ВНУТРИ защиты, а не рядом с кружком */
+    ctx.globalAlpha=0.75*fade; ctx.strokeStyle='#eafaff'; ctx.lineWidth=3.5;
+    ctx.beginPath(); ctx.arc(dog.x,cy,R*0.90,-2.45,-1.75); ctx.stroke();
     ctx.globalAlpha=1;
   }
   drawFgGrass();   // передний план — ПОД баннером инверсии: стебли не перечёркивают таймер
