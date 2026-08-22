@@ -215,8 +215,8 @@ const STR={
   en:{
     logo:'BONES',
     tag1:'Catch bones midair — carry them home!',
-    tag2:'Any kennel = 10 points per bone',
-    tag3:'The hot kennel feeds ×2…×5 — but it is far',
+    tag2:'Any kennel scores — and a streak scores more',
+    tag3:'The hot kennel feeds ×2…×4 — but it is far',
     tag4:'Skull — double damage · Rotten — normal',
     tag5:'Gold — dash · Stone — heavy',
     tag6:'Hold the buttons below · A/D on keyboard',
@@ -229,7 +229,7 @@ const STR={
     restart:'RESTART',
     menu:'MENU',
     help1:'Catch bones midair and carry them to a kennel.',
-    help2:'Any kennel = 10 points. The hot one also feeds ×2…×5.',
+    help2:'Any kennel scores; a streak of clean catches scores more.',
     help3:'The bar up top is your belly. It empties. Empty = over.',
     hNorm:'Bone — food and points',
     hSkull:'Skull — double damage',
@@ -267,8 +267,8 @@ const STR={
   ru:{
     logo:'КОСТОЧКИ',
     tag1:'Лови кости в воздухе — неси в будку!',
-    tag2:'Любая будка = 10 очков за кость',
-    tag3:'Горячая ещё и кормит ×2…×5 — но бежать далеко',
+    tag2:'Очки дают обе будки, а серия — больше',
+    tag3:'Горячая ещё и кормит ×2…×4 — но бежать далеко',
     tag4:'Череп бьёт вдвое, тухлая с мухой — обычно',
     tag5:'Золотая — рывок · Каменная — тяжесть',
     tag6:'Держи кнопки внизу · A/D на клавиатуре',
@@ -281,7 +281,7 @@ const STR={
     restart:'ЗАНОВО',
     menu:'В МЕНЮ',
     help1:'Лови кости в воздухе и таскай их в будку.',
-    help2:'Любая будка = 10 очков. Горячая ещё и кормит ×2…×5.',
+    help2:'Очки дают обе будки, серия чистых бросков — больше.',
     help3:'Шкала сверху — сытость. Она тает. Пустая — конец.',
     hNorm:'Обычная — еда и очки',
     hSkull:'Череп — двойной урон',
@@ -864,11 +864,11 @@ function catchBone(b){
   carrying=true;
   dog.squash=1; dog.chomp=1;   // пасть щёлкает: ловля наконец видна по телу
   hitStop=Math.max(hitStop,0.03);
-  const m=mouthPos();
+  const m=mouthVis(), fd=dogFaceDir();
   /* Летят ВПЕРЁД и вниз, а не веером вверх. Раньше половина искр уходила
      назад поверх морды, и на снимках у собаки вместо головы белое пятно:
      частицы рисуются после собаки, поэтому перекрывали всё лицо. */
-  for(let i=0;i<8;i++) addP({kind:'spark',x:m.x+dog.dir*4,y:m.y+3,vx:dog.dir*rand(25,150),vy:rand(-70,45),g:320,life:rand(0.22,0.38),max:0.38,size:rand(1.3,2.4),color:'#fff6dd'});
+  for(let i=0;i<8;i++) addP({kind:'spark',x:m.x+fd*4,y:m.y+3,vx:fd*rand(25,150),vy:rand(-70,45),g:320,life:rand(0.22,0.38),max:0.38,size:rand(1.3,2.4),color:'#fff6dd'});
   SFX.catch();
 }
 function auraBlock(b){
@@ -1029,8 +1029,11 @@ function deliverBone(side){
     /* фонтан по БОКАМ будки: раньше 24 конфетти и 16 монет проходили ровно
        сквозь табличку ×N и засыпали цифру — гасили единственный указатель,
        ради которого к этой будке и бежали */
+    /* Будки стоят вплотную к краям поля, поэтому «по бокам» отправляло
+       половину салюта за обрез: из 24 частиц было видно 12, и фонтан всегда
+       бил однобоко. Зажимаем в поле. */
     for(let i=0;i<24;i++){ const sd2=(i%2)?1:-1;
-      addP({kind:'spark',x:cx+sd2*rand(KW*0.55,KW*0.95),y:groundY-KH*0.75,vx:sd2*rand(20,150),vy:rand(-260,-80),g:430,life:rand(0.45,0.85),max:0.85,size:rand(2,4),color:CC[i%CC.length]}); }
+      addP({kind:'spark',x:clamp(cx+sd2*rand(KW*0.55,KW*0.95),10,W-10),y:groundY-KH*0.75,vx:sd2*rand(20,150),vy:rand(-260,-80),g:430,life:rand(0.45,0.85),max:0.85,size:rand(2,4),color:CC[i%CC.length]}); }
   }
   else SFX.deliverCold();
   SFX.thunk(0.26); // стук кости о будку — когда дуга долетит
@@ -1525,15 +1528,10 @@ function drawBone(x,y,rot,r,poison,kind,sly){
     for(const e of [-1,1]) for(const k of [-1,1]){
       ctx.beginPath(); ctx.arc(e*r*0.62,k*r*0.30,r*0.10,0,TAU); ctx.fill();
     }
-    /* Гравировку печатаем ТОЛЬКО когда она физически читается. В бою r≈10,
-       кегль выходил 6px на четыре глифа, да ещё в две копии со сдвигом 0.8px —
-       вместо шейки кости получалось двоящееся пятно. На справочном экране
-       кость крупнее, там подпись к месту. */
-    if(r>=12){
-      ctx.font='800 '+(r*0.44).toFixed(1)+'px system-ui,sans-serif';
-      ctx.textAlign='center'; ctx.textBaseline='middle';
-      ctx.fillStyle='#2c313a'; ctx.fillText(T('kg'),0,r*0.06);
-    }
+    /* Гравировка убрана совсем. Порог r>=12 не спас: справка рисует кость
+       с r=13, кегль выходит 5.7px на четыре глифа, а свободный участок стержня
+       между шишками ~14px — надпись обрезалась заклёпками даже там. Железо
+       читается холодным тоном, бликом и заклёпками; подпись только мешала. */
   }
   ctx.restore();
 }
@@ -2001,7 +1999,10 @@ function drawYardProps(){
   /* Отступ 1.4 ширины будки: на 0.8 пропсы садились ровно на фонарь,
      который висит на карнизе в 0.62, и всё слипалось в кашу. */
   const u=Math.max(0.85,DS*1.05);
-  const bx=kennelLX+KW*1.40, by=groundY-2;
+  /* Пропсы лежат на земле, а не приколочены к будкам, — значит и ехать
+     должны с землёй. Иначе трава и лужи плывут, а миска стоит колом. */
+  const pdx=-(dog.x-W/2)*0.10;
+  const bx=kennelLX+KW*1.40+pdx, by=groundY-2;
   ctx.fillStyle='#454b55';
   ctx.beginPath(); ctx.ellipse(bx,by-3*u,11*u,4.4*u,0,0,TAU); ctx.fill();
   ctx.fillStyle='#23262c';
@@ -2010,7 +2011,7 @@ function drawYardProps(){
   ctx.beginPath(); ctx.ellipse(bx+17*u,by-2*u,4.6*u,1.9*u,0.28,0,TAU); ctx.fill();
   ctx.beginPath(); ctx.arc(bx+21*u,by-2.6*u,2.1*u,0,TAU); ctx.fill();
   /* у правой — прислонённая покрышка */
-  const tx=kennelRX-KW*1.40, ty=groundY-8*u+1.5;   // +1.5: слегка утоплена, иначе висит
+  const tx=kennelRX-KW*1.40+pdx, ty=groundY-8*u+1.5;   // +1.5: слегка утоплена, иначе висит
   ctx.strokeStyle='#1e2127'; ctx.lineWidth=4.2*u;
   ctx.beginPath(); ctx.arc(tx,ty,8*u,0,TAU); ctx.stroke();
   ctx.strokeStyle='#343943'; ctx.lineWidth=1.4*u;
@@ -2138,30 +2139,35 @@ function drawKennel(side){
      на любой высоте карниза лампа попадает в голову. Единственное место,
      свободное от собаки, — внешняя стена. 0.45 ширины: дальше уедет за экран,
      будки и так стоят у самых краёв. */
-  const ax=side*w*0.45, ay=-h*0.56;
+  /* ТРЕТЬЯ и последняя попытка. Двигать лампу ВБОК бессмысленно: dog.x зажат
+     в [26, W-26], морда достаёт ещё на 37*DOG_S, то есть собака дотягивается
+     до любой точки по горизонтали — и на внутренней стене, и на внешней
+     колпак садился ей на нос. Единственная свободная ось — вертикаль.
+     Лампа теперь НЕ ВИСИТ, а прибита к фронтону: тело центрировано на оси
+     крепления, низ на -h*0.62 против макушки собаки на -53*DOG_S ≈ -28.
+     Заодно корпус тёплый, а не почти чёрный: срастаться с носом больше нечем. */
+  const ax=side*w*0.34, ay=-h*0.86;
   const lit=hot&&blinkOn;
   ctx.save(); ctx.translate(ax,ay);
-  ctx.rotate(Math.sin(realTime*1.8+side*1.3)*0.14+sq*0.5*Math.sin(realTime*9));
-  ctx.strokeStyle='#3a2a1e'; ctx.lineWidth=2;
-  ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,9); ctx.stroke();
+  ctx.rotate(Math.sin(realTime*1.8+side*1.3)*0.05+sq*0.2*Math.sin(realTime*9));
   if(lit){
     if(!lanternGrad){
-      lanternGrad=ctx.createRadialGradient(0,15,1,0,15,26);
+      lanternGrad=ctx.createRadialGradient(0,0,1,0,0,26);
       lanternGrad.addColorStop(0,'rgba(255,214,110,0.55)'); lanternGrad.addColorStop(1,'rgba(255,214,110,0)');
     }
-    ctx.fillStyle=lanternGrad; ctx.beginPath(); ctx.arc(0,15,26,0,TAU); ctx.fill();
+    ctx.fillStyle=lanternGrad; ctx.beginPath(); ctx.arc(0,0,26,0,TAU); ctx.fill();
   }
-  ctx.fillStyle='#2b2018'; rr(-4.5,8,9,3,1.5); ctx.fill();
-  ctx.fillStyle=lit?'#ffd45e':'#5c4c34'; rr(-3.5,11,7,9,2.5); ctx.fill();
-  if(lit){ ctx.fillStyle='#fff3c4'; ctx.beginPath(); ctx.arc(0,15.5,2,0,TAU); ctx.fill(); }
-  ctx.fillStyle='#2b2018'; rr(-4.5,20,9,2.5,1.2); ctx.fill();
+  ctx.fillStyle='#8a5a2e'; rr(-4.6,-8,9.2,2.8,1.4); ctx.fill();          // тёплый козырёк
+  ctx.fillStyle=lit?'#ffd45e':'#6b5a3e'; rr(-3.6,-5.2,7.2,9.4,2.6); ctx.fill();
+  if(lit){ ctx.fillStyle='#fff3c4'; ctx.beginPath(); ctx.arc(0,-0.4,2,0,TAU); ctx.fill(); }
+  ctx.fillStyle='#8a5a2e'; rr(-4.6,4.4,9.2,2.4,1.2); ctx.fill();
   ctx.restore();
   if(lit){                                   // мотыльки вьются только у зажжённого
     ctx.fillStyle='rgba(240,228,190,0.85)';
     for(let mi=0;mi<3;mi++){
       const t=realTime*(1.6+mi*0.5)+mi*2.1+side*3;
       ctx.beginPath();
-      ctx.arc(ax+Math.cos(t)*(10+4*Math.sin(t*2.3)),ay+15+Math.sin(t*1.4)*(8+3*Math.cos(t*1.9)),
+      ctx.arc(ax+Math.cos(t)*(10+4*Math.sin(t*2.3)),ay+Math.sin(t*1.4)*(8+3*Math.cos(t*1.9)),
               1.6+0.5*Math.sin(t*7),0,TAU);
       ctx.fill();
     }
@@ -2214,7 +2220,7 @@ function drawDog(){
   if(moving&&!sad) ctx.rotate(Math.min(1,Math.abs(dog.vx)/260)*0.075);
   const bob=(moving&&!sad)?-Math.abs(Math.sin(ph))*1.6:0;
   /* хвост */
-  const wag=sad?0:Math.sin(realTime*(carrying?7:13))*0.5;
+  const wag=(sad||stunned)?0:Math.sin(realTime*(carrying?7:13))*0.5;   // с крестиками в глазах хвостом не виляют
   ctx.save();
   /* Хвост нарисован вектором (-13,-14) — вверх-влево. Чтобы он ПОВИС, его надо
      довернуть против часовой на ~78°, а не по часовой: +0.85 задирало его торчком. */
@@ -2253,7 +2259,7 @@ function drawDog(){
   /* ПАСТЬ. Рта не было вовсе — только точка-носа, при том что весь геймплей
      это ловля пастью, и пойманная кость просто исчезала в искрах.
      Закрытая — короткая линия; при ловле раскрывается и щёлкает. */
-  if(dog.chomp>0.03&&!sad){
+  if(dog.chomp>0.03&&!sad&&!stunned){
     /* Было sin(π·chomp): при chomp=1 (сам момент укуса) это ноль, то есть
        пасть в укус ЗАКРЫТА, а раскрывалась спустя 0.1с. Теперь наоборот. */
     const op=Math.min(1,dog.chomp)*9;
@@ -2265,7 +2271,12 @@ function drawDog(){
     ctx.closePath(); ctx.fill();
     ctx.fillStyle='#ff8fa3';                       // язык внутри раскрытой пасти
     ctx.beginPath(); ctx.ellipse(12.6,3.4+op*0.45,3.1,op*0.30,0,0,TAU); ctx.fill();
-  }else if(!sad){
+  }else if(sad){
+    /* Обе ветки рта были закрыты !sad, и на экране смерти морда оставалась
+       голым пятном без единой линии. Грустному псу нужен свой рот — уголками вниз. */
+    ctx.strokeStyle='#3a2a1e'; ctx.lineWidth=1.5; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(9.8,4.0); ctx.quadraticCurveTo(13.2,2.4,16.4,4.6); ctx.stroke();
+  }else{
     ctx.strokeStyle='#3a2a1e'; ctx.lineWidth=1.5; ctx.lineCap='round';
     ctx.beginPath(); ctx.moveTo(9.5,4.4); ctx.quadraticCurveTo(13,6,16.4,4.2); ctx.stroke();
   }
@@ -2314,7 +2325,9 @@ function drawDog(){
      ровно на морду: глаз, нос и вся свежая мимика были не видны НИ РАЗУ, пока
      собака несёт кость — то есть половину игры. Теперь верх кости проходит
      под глазом, и видно взгляд, испуг, ухо и моргание. */
-  if(carrying) drawBone(17,12,-0.14,14,false,undefined);
+  /* r=16 вместо 14: при 14 кость в зубах была на 30% мельче той же кости
+     секундой раньше в полёте. Больше не влезает — верх упрётся в глаз. */
+  if(carrying) drawBone(18,13,-0.14,16,false,undefined);
   ctx.restore();
   ctx.restore();
   /* звёздочки оглушения */
